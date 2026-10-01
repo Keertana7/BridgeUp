@@ -3,3 +3,5 @@
 backend/venv/
 __pycache__/
 *.pyc
+data/pdfs/
+data/extracted/
