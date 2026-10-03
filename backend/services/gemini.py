@@ -1,12 +1,16 @@
 import os
-
+from pathlib import Path
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
-load_dotenv()
+# Always load the .env located inside the backend folder
+ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+load_dotenv(dotenv_path=ENV_PATH, override=True)
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+
 GEMINI_MODEL = os.getenv(
     "GEMINI_MODEL",
     "gemini-3.8-flash"
@@ -14,7 +18,6 @@ GEMINI_MODEL = os.getenv(
 
 if not GEMINI_API_KEY:
     raise RuntimeError("GEMINI_API_KEY is missing")
-
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
