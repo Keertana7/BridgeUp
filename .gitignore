@@ -1,7 +1,12 @@
 .env
+<<<<<<< HEAD
 *.json
 backend/venv/
 __pycache__/
 *.pyc
 data/pdfs/
 data/extracted/
+=======
+venv/
+__pycache__/
+>>>>>>> a1a8f02 (Complete core backend)

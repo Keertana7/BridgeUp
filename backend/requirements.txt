@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
@@ -57,3 +58,11 @@ urllib3==2.8.0
 uvicorn==0.53.0
 websockets==15.0.1
 yarl==1.25.1
+=======
+fastapi==0.141.1
+uvicorn==0.53.0
+supabase==2.31.0
+python-dotenv==1.2.3
+pyjwt[cryptography]==2.14.0
+httpx==0.28.1
+>>>>>>> a1a8f02 (Complete core backend)
