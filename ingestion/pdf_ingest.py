@@ -2,10 +2,8 @@ import pymupdf
 
 from pathlib import Path
 
-from supabase_client import supabase
 from privacy import sanitize_text
-from llm_extract import extract_questions_and_advice
-from save_extraction import save_extraction
+from pipeline import get_or_create_company, process_experience
 # --------------------------------------------------
 # CONFIGURATION
 # --------------------------------------------------
@@ -33,39 +31,6 @@ def extract_text_from_pdf(pdf_path):
 
 
 # --------------------------------------------------
-# COMPANY
-# --------------------------------------------------
-
-def get_or_create_company(company_name):
-    """Get existing company ID or create a new company."""
-
-    if not company_name:
-        return None
-
-    result = (
-        supabase
-        .table("companies")
-        .select("id")
-        .eq("name", company_name)
-        .execute()
-    )
-
-    if result.data:
-        return result.data[0]["id"]
-
-    result = (
-        supabase
-        .table("companies")
-        .insert({
-            "name": company_name
-        })
-        .execute()
-    )
-
-    return result.data[0]["id"]
-
-
-# --------------------------------------------------
 # PDF INGESTION
 # --------------------------------------------------
 
@@ -76,34 +41,25 @@ def ingest_pdf(pdf_path):
     print(f"\nProcessing: {filename}")
 
     # ----------------------------------------------
-    # Check whether PDF was already imported
-    # ----------------------------------------------
-
-    existing = (
-        supabase
-        .table("experiences")
-        .select("id")
-        .eq("source_file", filename)
-        .execute()
-    )
-
-    if existing.data:
-        print(f"SKIPPED: already imported - {filename}")
-        return
-
-
-    # ----------------------------------------------
     # Extract text
     # ----------------------------------------------
 
-    text = extract_text_from_pdf(pdf_path)
+    try:
+        text = extract_text_from_pdf(pdf_path)
+    except Exception as exc:
+        result = {
+            "experience_id": None,
+            "status": "failed",
+            "duplicate": False,
+            "completed_steps": [],
+            "steps": {},
+            "failed_step": "extract_pdf_text",
+            "error": str(exc),
+        }
+        print(f"FAILED: {filename} at extract_pdf_text: {exc}")
+        return result
 
     print(f"Characters extracted: {len(text)}")
-
-
-    if not text:
-        print(f"WARNING: No text extracted from {filename}")
-        return
 
     sanitized_text = sanitize_text(text)
     # ----------------------------------------------
@@ -134,44 +90,23 @@ def ingest_pdf(pdf_path):
     }
 
 
-    # ----------------------------------------------
-    # Insert into Supabase
-    # ----------------------------------------------
-
-    result = (
-        supabase
-        .table("experiences")
-        .insert(experience)
-        .execute()
+    result = process_experience(
+        experience,
+        extraction_text=text,
     )
 
-    experience_id = result.data[0]["id"]
+    if result["status"] == "failed":
+        print(
+            f"FAILED: {filename} at {result['failed_step']} "
+            f"for experience {result['experience_id']}: {result['error']}"
+        )
+        return result
 
     print(
-        f"SUCCESS: {filename} "
-        f"→ experience_id = {experience_id}"
+        f"COMPLETED: {filename} "
+        f"(experience_id={result['experience_id']})"
     )
-
-    # ----------------------------------------------
-    # Gemini extraction
-    # ----------------------------------------------
-
-    print("\nExtracting questions and advice using Gemini...")
-
-    extraction_result = extract_questions_and_advice(text)
-
-    # ----------------------------------------------
-    # Save extracted data
-    # ----------------------------------------------
-
-    save_extraction(
-        experience_id,
-        extraction_result
-    )
-
-    print(
-        f"COMPLETED: {filename}"
-    )
+    return result
 
 
 # --------------------------------------------------

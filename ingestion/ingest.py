@@ -9,6 +9,7 @@ from transform import (
     transform_advice,
     transform_resources
 )
+from pipeline import get_form_submission_id, process_form_response
 
 load_dotenv()
 
@@ -54,7 +55,7 @@ def insert_experience(row):
     """Insert one experience and return its ID."""
 
     data = transform_experience(row)
-    submission_id = row.get("Timestamp")
+    submission_id = get_form_submission_id(row)
     existing = (
         supabase
         .table("experiences")
@@ -219,7 +220,7 @@ def insert_advice(row, experience_id):
 
 
 def insert_resources(row, experience_id):
-    """Insert resources shared by the senior."""
+    """Insert missing resources shared by the senior without duplicates."""
 
     data = transform_resources(row)
 
@@ -245,8 +246,35 @@ def insert_resources(row, experience_id):
             "file_path": None
         })
 
-    if resources:
-        supabase.table("resources").insert(resources).execute()
+    resource_fields = (
+        "title",
+        "description",
+        "category",
+        "resource_type",
+        "url",
+        "file_path",
+    )
+    missing_resources = []
+
+    for resource in resources:
+        existing_response = (
+            supabase
+            .table("resources")
+            .select(",".join(resource_fields))
+            .eq("title", resource["title"])
+            .execute()
+        )
+        existing_keys = {
+            tuple(existing.get(field) for field in resource_fields)
+            for existing in existing_response.data or []
+        }
+        resource_key = tuple(resource.get(field) for field in resource_fields)
+
+        if resource_key not in existing_keys:
+            missing_resources.append(resource)
+
+    if missing_resources:
+        supabase.table("resources").insert(missing_resources).execute()
 
 
 def main():
@@ -261,19 +289,22 @@ def main():
 
             print(f"\nProcessing row {index}...")
 
-            experience_id = insert_experience(row)
+            result = process_form_response(row)
 
-            if experience_id is None:
+            if result["status"] == "failed":
+                print(
+                    f"FAILED at {result['failed_step']} "
+                    f"for experience {result['experience_id']}: "
+                    f"{result['error']}"
+                )
                 continue
 
-
-            insert_questions(row, experience_id)
-            insert_advice(row, experience_id)
-            insert_resources(row, experience_id)
+            insert_resources(row, result["experience_id"])
 
             print(
                 f"SUCCESS: {row.get('Name')} - "
-                f"{row.get('Company ')}"
+                f"{row.get('Company ')} "
+                f"(experience_id={result['experience_id']})"
             )
 
         except Exception as e:

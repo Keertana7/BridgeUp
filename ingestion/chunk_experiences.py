@@ -262,115 +262,59 @@ def build_chunks(text):
 
 
 # ============================================================
-# Fetch experiences
+# Reusable single-experience chunk creation
 # ============================================================
 
-response = (
-    supabase
-    .table("experiences")
-    .select(
-        "id, source_type, content"
-    )
-    .execute()
-)
+def create_chunks_for_experience(experience_id):
+    """Create chunks for one experience, skipping if chunks already exist."""
 
-experiences = response.data or []
+    if experience_id is None:
+        raise ValueError("experience_id is required")
 
-print(
-    f"Experiences found: {len(experiences)}"
-)
-
-
-# ============================================================
-# Create chunks
-# ============================================================
-
-total_chunks_created = 0
-experiences_skipped = 0
-
-for experience in experiences:
-
-    experience_id = experience["id"]
-    source_type = experience.get(
-        "source_type"
-    )
-    content = experience.get(
-        "content"
-    )
-
-    print("\n" + "=" * 60)
-    print(
-        f"Experience: {experience_id}"
-    )
-    print(
-        f"Source: {source_type}"
-    )
-
-    # ========================================================
-    # DUPLICATE PREVENTION
-    # ========================================================
-
-    existing_response = (
+    response = (
         supabase
-        .table("experience_chunks")
-        .select("id")
-        .eq(
-            "experience_id",
-            experience_id
-        )
+        .table("experiences")
+        .select("id, source_type, content")
+        .eq("id", experience_id)
         .limit(1)
         .execute()
     )
 
-    existing_chunks = (
-        existing_response.data or []
-    )
+    experience = (response.data or [None])[0]
 
-    if existing_chunks:
+    if not experience:
+        print(f"SKIPPED: experience not found - {experience_id}")
+        return 0
 
-        print(
-            "Chunks already exist."
-        )
-        print(
-            "Skipping this experience."
-        )
-
-        experiences_skipped += 1
-
-        continue
-
-    # ========================================================
-    # Validate content
-    # ========================================================
+    content = experience.get("content")
 
     if not content:
-
-        print(
-            "No content. Skipping."
-        )
-
-        continue
-
-    # ========================================================
-    # Generate chunks
-    # ========================================================
+        print(f"SKIPPED: no content for experience - {experience_id}")
+        return 0
 
     chunks = build_chunks(content)
 
-    print(
-        f"Generated chunks: {len(chunks)}"
-    )
-
     if not chunks:
-        continue
+        print(f"SKIPPED: no chunks generated for experience - {experience_id}")
+        return 0
 
-    # ========================================================
-    # Prepare rows
-    # ========================================================
+    existing_response = (
+        supabase
+        .table("experience_chunks")
+        .select("chunk_index")
+        .eq("experience_id", experience_id)
+        .execute()
+    )
+    existing_indices = {
+        item["chunk_index"]
+        for item in existing_response.data or []
+    }
 
     rows = []
 
     for index, chunk in enumerate(chunks):
+        if index in existing_indices:
+            continue
 
         rows.append({
             "experience_id": experience_id,
@@ -380,38 +324,64 @@ for experience in experiences:
             "embedding": None
         })
 
-    # ========================================================
-    # Insert
-    # ========================================================
+    if not rows:
+        print(f"SKIPPED: chunks already exist for experience - {experience_id}")
+        return 0
 
-    (
+    supabase.table("experience_chunks").insert(rows).execute()
+
+    print(f"Inserted {len(rows)} chunks for experience {experience_id}")
+
+    return len(rows)
+
+
+# ============================================================
+# Batch execution moved behind a main guard
+# ============================================================
+
+def main():
+    response = (
         supabase
-        .table("experience_chunks")
-        .insert(rows)
+        .table("experiences")
+        .select("id, source_type, content")
         .execute()
     )
 
-    total_chunks_created += len(rows)
+    experiences = response.data or []
 
-    print(
-        f"Inserted {len(rows)} chunks."
-    )
+    print(f"Experiences found: {len(experiences)}")
+
+    total_chunks_created = 0
+    experiences_skipped = 0
+
+    for experience in experiences:
+        experience_id = experience["id"]
+        source_type = experience.get("source_type")
+        content = experience.get("content")
+
+        print("\n" + "=" * 60)
+        print(f"Experience: {experience_id}")
+        print(f"Source: {source_type}")
+
+        if not content:
+            print("No content. Skipping.")
+            experiences_skipped += 1
+            continue
+
+        created = create_chunks_for_experience(experience_id)
+
+        if created:
+            total_chunks_created += created
+        else:
+            experiences_skipped += 1
+
+    print("\n" + "-" * 60)
+    print("Chunking completed!")
+    print("-" * 60)
+    print(f"New chunks created: {total_chunks_created}")
+    print(f"Experiences skipped: {experiences_skipped}")
+    print("-" * 60)
 
 
-# ============================================================
-# Final result
-# ============================================================
-
-print("\n" + "-" * 60)
-print("Chunking completed!")
-print("-" * 60)
-
-print(
-    f"New chunks created: {total_chunks_created}"
-)
-
-print(
-    f"Experiences skipped: {experiences_skipped}"
-)
-
-print("-" * 60)
+if __name__ == "__main__":
+    main()
