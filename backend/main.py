@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from routes.ai import router as ai_router
 from routes.chat import router as chat_router
+from routes.ingestion import router as ingestion_router
 
 
 app = FastAPI(
@@ -12,6 +13,7 @@ app = FastAPI(
 
 app.include_router(ai_router)
 app.include_router(chat_router)
+app.include_router(ingestion_router)
 
 
 @app.get("/")
