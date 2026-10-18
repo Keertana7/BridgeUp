@@ -437,6 +437,67 @@ class PipelineTests(unittest.TestCase):
         )
         self.database.table.return_value.insert.assert_not_called()
 
+    def test_completed_form_submission_skips_transform_and_gemini(self):
+        mocks = self.configure_pipeline(
+            existing={"id": "exp-complete", "extraction_status": "completed"}
+        )
+        transform = types.ModuleType("transform")
+        transform.transform_experience = Mock(side_effect=AssertionError("must be skipped"))
+        transform.transform_questions = Mock(side_effect=AssertionError("must be skipped"))
+        transform.transform_advice = Mock(side_effect=AssertionError("must be skipped"))
+        classifier = types.ModuleType("llm_extract")
+        classifier.extract_questions_and_advice = Mock(
+            side_effect=AssertionError("Gemini must be skipped")
+        )
+
+        with patch.dict(sys.modules, {"transform": transform, "llm_extract": classifier}):
+            result = self.pipeline.process_form_response({
+                "Timestamp": "2026-10-10 10:00",
+                "submission_id": "google-form:2026-10-10 10:00",
+                "Name": "Alex",
+            })
+
+        self.assertEqual(result["status"], "completed")
+        self.assertTrue(result["duplicate"])
+        self.assertEqual(result["experience_id"], "exp-complete")
+        self.assertEqual(
+            mocks["_find_existing_experience"].call_args_list,
+            [unittest.mock.call("form", "submission_id", "google-form:2026-10-10 10:00")],
+        )
+        transform.transform_experience.assert_not_called()
+        classifier.extract_questions_and_advice.assert_not_called()
+        mocks["save_extraction"].assert_not_called()
+        mocks["create_chunks_for_experience"].assert_not_called()
+        mocks["embed_questions_for_experience"].assert_not_called()
+        mocks["embed_advice_for_experience"].assert_not_called()
+        mocks["embed_chunks_for_experience"].assert_not_called()
+
+    def test_completed_legacy_timestamp_record_is_found_and_promoted(self):
+        mocks = self.configure_pipeline()
+        existing = {"id": "legacy-exp", "extraction_status": "completed"}
+        mocks["_find_existing_experience"].side_effect = [None, existing]
+
+        result = self.pipeline.process_form_response({
+            "Timestamp": "2026-10-10 10:00",
+            "submission_id": "google-form:2026-10-10 10:00",
+            "Name": "Alex",
+        })
+
+        self.assertEqual(result["status"], "completed")
+        self.assertTrue(result["duplicate"])
+        self.assertEqual(result["experience_id"], "legacy-exp")
+        self.assertEqual(
+            mocks["_find_existing_experience"].call_args_list,
+            [
+                unittest.mock.call("form", "submission_id", "google-form:2026-10-10 10:00"),
+                unittest.mock.call("form", "submission_id", "2026-10-10 10:00"),
+            ],
+        )
+        self.database.table.return_value.update.assert_called_once_with(
+            {"submission_id": "google-form:2026-10-10 10:00"}
+        )
+        mocks["save_extraction"].assert_not_called()
+
     def test_duplicate_lookup_failure_reports_stage(self):
         mocks = self.configure_pipeline()
         mocks["_find_existing_experience"].side_effect = RuntimeError("lookup failed")
@@ -473,13 +534,13 @@ class PipelineTests(unittest.TestCase):
             "consent": "I Agree",
         })
         transform.transform_questions = Mock(return_value={
-            "oa_aptitude": None,
-            "oa_coding": None,
-            "technical_questions": "Explain a hash map.",
-            "project_questions": None,
+            "oa_aptitude": "Probability questions.",
+            "oa_coding": "Two Sum.",
+            "technical_questions": "Bubble Sort, Java keywords, OOP pillars, SQL joins, React/Spring Boot, AI, Cloud.",
+            "project_questions": "Explain your project architecture.",
             "internship_questions": None,
             "technical_aptitude": None,
-            "hr_questions": None,
+            "hr_questions": "Tell me about yourself.",
         })
         transform.transform_advice = Mock(return_value={
             "preparation_strategy": None,
@@ -488,12 +549,27 @@ class PipelineTests(unittest.TestCase):
             "advice": "Practice explaining tradeoffs.",
             "wish_known": None,
         })
+        technical_answer = transform.transform_questions.return_value["technical_questions"]
+        classifier = types.ModuleType("llm_extract")
+        classifier.extract_questions_and_advice = Mock(return_value={
+            "questions": [
+                {"question": "Explain Bubble Sort.", "category": "DSA", "subcategory": "Sorting"},
+                {"question": "What are Java keywords?", "category": "Programming"},
+                {"question": "What are the OOP pillars?", "category": "Core"},
+                {"question": "Explain SQL joins.", "category": "Core"},
+                {"question": "Questions about React and Spring Boot.", "category": "Programming"},
+                {"question": "Questions about AI.", "category": "AI/ML"},
+                {"question": "Questions about Cloud.", "category": "Other"},
+            ],
+            "advice": [],
+        })
         expected_result = {"status": "completed"}
         row = {"Timestamp": "2026-10-10", "Name": "Alex", "Company ": "Acme"}
 
-        with patch.dict(sys.modules, {"transform": transform}):
-            with patch.object(self.pipeline, "process_experience", return_value=expected_result) as process:
-                result = self.pipeline.process_form_response(row)
+        with patch.dict(sys.modules, {"transform": transform, "llm_extract": classifier}):
+            with patch.object(self.pipeline, "_find_form_experience", return_value=(None, False)):
+                with patch.object(self.pipeline, "process_experience", return_value=expected_result) as process:
+                    result = self.pipeline.process_form_response(row)
 
         self.assertEqual(result, expected_result)
         experience = process.call_args.args[0]
@@ -503,14 +579,21 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual(experience["source_type"], "form")
         self.assertEqual(experience["company_name"], "Acme")
+        questions = process.call_args.kwargs["extraction_result"]["questions"]
         self.assertEqual(
             experience["content"],
-            "Explain a hash map.\n\nPractice explaining tradeoffs.",
+            "\n\n".join(
+                [question["question"] for question in questions]
+                + ["Practice explaining tradeoffs."]
+            ),
         )
+        classifier.extract_questions_and_advice.assert_called_once_with(technical_answer)
         self.assertEqual(
-            process.call_args.kwargs["extraction_result"]["questions"][0]["question"],
-            "Explain a hash map.",
+            [question["category"] for question in questions],
+            ["Aptitude", "Programming", "Project", "HR", "DSA", "Programming", "Core", "Core", "Programming", "AI/ML", "Other"],
         )
+        self.assertEqual(questions[4]["subcategory"], "Sorting")
+        self.assertTrue(all(question["source_section"] == "Technical Interview" for question in questions[4:]))
         self.assertEqual(
             process.call_args.kwargs["extraction_result"]["advice"][0]["type"],
             "advice",
@@ -552,12 +635,13 @@ class PipelineTests(unittest.TestCase):
         transform.transform_advice = Mock()
 
         with patch.dict(sys.modules, {"transform": transform}):
-            with patch.object(self.pipeline, "process_experience") as process:
-                result = self.pipeline.process_form_response({
-                    "Timestamp": "2026-10-10",
-                    "Name": "Alex",
-                    "Company ": "Acme",
-                })
+            with patch.object(self.pipeline, "_find_form_experience", return_value=(None, False)):
+                with patch.object(self.pipeline, "process_experience") as process:
+                    result = self.pipeline.process_form_response({
+                        "Timestamp": "2026-10-10",
+                        "Name": "Alex",
+                        "Company ": "Acme",
+                    })
 
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["failed_step"], "transform_form")
@@ -1007,6 +1091,17 @@ class PipelineTests(unittest.TestCase):
             "advice": None,
             "wish_known": None,
         })
+        classifier = types.ModuleType("llm_extract")
+        classifier.extract_questions_and_advice = Mock(return_value={
+            "questions": [{
+                "question": "Explain a hash map.",
+                "category": "DSA",
+                "subcategory": "Hashing",
+                "source_section": "Technical Interview",
+                "difficulty": "Medium",
+            }],
+            "advice": [],
+        })
         mocks = self.configure_pipeline()
         state = {
             "experience": None,
@@ -1131,7 +1226,7 @@ class PipelineTests(unittest.TestCase):
         }
         retry_row = {**first_row, "Timestamp": "2026-10-10 10:05"}
 
-        with patch.dict(sys.modules, {"transform": transform}):
+        with patch.dict(sys.modules, {"transform": transform, "llm_extract": classifier}):
             first_result = self.pipeline.process_form_response(first_row)
             question_row = state["questions"][0]
             saved_counts = {
@@ -1146,9 +1241,10 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(retry_result["status"], "completed")
         self.assertTrue(retry_result["duplicate"])
         self.assertEqual(retry_result["experience_id"], "form-exp-1")
-        self.assertEqual(len(source_ids), 3)
+        self.assertEqual(len(source_ids), 6)
         self.assertEqual(source_ids[0], source_ids[2])
         self.assertEqual(source_ids[1], "2026-10-10 10:00")
+        self.assertEqual(source_ids[3], "2026-10-10 10:00")
         self.assertEqual(
             saved_counts,
             {"questions": 1, "advice": 0, "chunks": 0},
@@ -1160,6 +1256,8 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(len(state["questions"]), 1)
         self.assertEqual(len(state["advice"]), 1)
         self.assertEqual(state["questions"][0]["question"], "Explain a hash map.")
+        self.assertEqual(state["questions"][0]["category"], "DSA")
+        self.assertEqual(classifier.extract_questions_and_advice.call_count, 2)
         self.assertEqual(state["advice"][0]["content"], "Practice daily.")
         self.assertIs(state["questions"][0], question_row)
         self.assertEqual(question_attempts, ["q-1"])

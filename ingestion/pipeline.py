@@ -95,6 +95,23 @@ def _find_existing_experience(source_type, identity_field, identity_value):
     return (response.data or [None])[0]
 
 
+def _find_form_experience(submission_id, legacy_submission_id=None):
+    existing = _find_existing_experience("form", "submission_id", submission_id)
+    matched_legacy_id = False
+    if (
+        existing is None
+        and legacy_submission_id
+        and legacy_submission_id != submission_id
+    ):
+        existing = _find_existing_experience(
+            "form",
+            "submission_id",
+            legacy_submission_id,
+        )
+        matched_legacy_id = existing is not None
+    return existing, matched_legacy_id
+
+
 def _update_form_submission_id(experience_id, submission_id):
     (
         supabase
@@ -307,19 +324,18 @@ def process_experience(
     state["completed_steps"].append("validate")
 
     try:
-        existing = _find_existing_experience(
-            source_type,
-            identity_field,
-            identity_value,
-        )
-        matched_legacy_id = False
-        if existing is None and source_type == "form" and legacy_submission_id:
+        if source_type == "form":
+            existing, matched_legacy_id = _find_form_experience(
+                identity_value,
+                legacy_submission_id,
+            )
+        else:
             existing = _find_existing_experience(
                 source_type,
                 identity_field,
-                legacy_submission_id,
+                identity_value,
             )
-            matched_legacy_id = existing is not None
+            matched_legacy_id = False
     except Exception as exc:
         return _failure(state, "deduplicate", exc)
 
@@ -496,6 +512,53 @@ def process_form_response(row):
         }
         return _failure(state, "validate", exc)
 
+    legacy_submission_id = row.get("Timestamp")
+    try:
+        existing, matched_legacy_id = _find_form_experience(
+            submission_id,
+            legacy_submission_id,
+        )
+    except Exception as exc:
+        state = {
+            "experience_id": None,
+            "status": "processing",
+            "duplicate": False,
+            "completed_steps": ["validate"],
+            "steps": {},
+        }
+        return _failure(state, "deduplicate", exc)
+
+    if existing:
+        if matched_legacy_id:
+            try:
+                _update_form_submission_id(existing["id"], submission_id)
+            except Exception as exc:
+                state = {
+                    "experience_id": existing["id"],
+                    "status": "processing",
+                    "duplicate": True,
+                    "completed_steps": ["validate", "deduplicate"],
+                    "steps": {},
+                }
+                return _failure(state, "migrate_submission_id", exc)
+
+        if existing.get("extraction_status") == "completed":
+            return {
+                "experience_id": existing["id"],
+                "status": "completed",
+                "duplicate": True,
+                "completed_steps": ["validate", "deduplicate", "extract", "save_extraction"],
+                "steps": {
+                    "save_experience": {"status": "skipped_existing"},
+                    "extract": {"status": "skipped_completed"},
+                    "save_extraction": {"status": "skipped_completed"},
+                    "create_chunks": {"status": "skipped_completed"},
+                    "embed_questions": {"status": "skipped_completed"},
+                    "embed_advice": {"status": "skipped_completed"},
+                    "embed_chunks": {"status": "skipped_completed"},
+                },
+            }
+
     try:
         from transform import transform_advice, transform_experience, transform_questions
 
@@ -536,7 +599,6 @@ def process_form_response(row):
         question_sources = (
             ("oa_aptitude", "Aptitude", "Online Assessment"),
             ("oa_coding", "Programming", "Online Assessment"),
-            ("technical_questions", "Other", "Technical Interview"),
             ("project_questions", "Project", "Technical Interview"),
             ("internship_questions", "Other", "Technical Interview"),
             ("technical_aptitude", "Aptitude", "Technical Interview"),
@@ -552,6 +614,49 @@ def process_form_response(row):
             for key, category, source_section in question_sources
             if question_data[key]
         ]
+
+        technical_answer = question_data["technical_questions"]
+        if technical_answer:
+            from llm_extract import extract_questions_and_advice
+
+            technical_result = extract_questions_and_advice(technical_answer)
+            technical_questions = (
+                technical_result.get("questions")
+                if isinstance(technical_result, dict)
+                else None
+            )
+            if not isinstance(technical_questions, list):
+                raise ValueError("technical question extraction must return a questions list")
+
+            allowed_categories = {
+                "DSA",
+                "Core",
+                "Aptitude",
+                "Programming",
+                "Project",
+                "HR",
+                "AI/ML",
+                "Other",
+            }
+            for item in technical_questions:
+                if not isinstance(item, dict):
+                    raise ValueError("extracted technical questions must be objects")
+                question = item.get("question")
+                if not isinstance(question, str) or not question.strip():
+                    raise ValueError("extracted technical questions need question text")
+
+                category = item.get("category")
+                questions.append({
+                    "question": question.strip(),
+                    "category": (
+                        category
+                        if isinstance(category, str) and category in allowed_categories
+                        else "Other"
+                    ),
+                    "subcategory": item.get("subcategory") or "",
+                    "source_section": "Technical Interview",
+                    "difficulty": item.get("difficulty") or "Unknown",
+                })
 
         advice_data = transform_advice(row)
         advice_sources = (
