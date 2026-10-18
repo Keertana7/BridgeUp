@@ -30,6 +30,60 @@ def _insert_missing_rows(table_name, experience_id, rows, fields):
     return len(missing_rows)
 
 
+def _save_questions(experience_id, rows):
+    if not rows:
+        return 0
+
+    table = supabase.table("questions")
+    response = (
+        table
+        .select("id,question,category,subcategory,source_section,difficulty")
+        .eq("experience_id", experience_id)
+        .execute()
+    )
+    existing_by_text = {
+        item.get("question"): item
+        for item in response.data or []
+    }
+    pending_by_text = {}
+    metadata_fields = ("category", "subcategory", "source_section", "difficulty")
+
+    for row in rows:
+        question_text = row.get("question")
+        existing = existing_by_text.get(question_text)
+        if existing is not None:
+            updates = {
+                field: row[field]
+                for field in metadata_fields
+                if row.get(field) not in (None, "", "Unknown")
+                and row.get(field) != existing.get(field)
+            }
+            if updates:
+                (
+                    table
+                    .update(updates)
+                    .eq("id", existing["id"])
+                    .execute()
+                )
+                existing.update(updates)
+            continue
+
+        pending = pending_by_text.get(question_text)
+        if pending is not None:
+            for field in metadata_fields:
+                if row.get(field) not in (None, "", "Unknown"):
+                    pending[field] = row[field]
+            continue
+
+        pending_by_text[question_text] = row
+
+    missing_rows = list(pending_by_text.values())
+    if missing_rows:
+        table.insert(missing_rows).execute()
+
+    return len(missing_rows)
+
+
 def save_extraction(experience_id, result, reprocess=False):
     """
     Save extracted questions and advice without duplicating existing rows.
@@ -69,12 +123,7 @@ def save_extraction(experience_id, result, reprocess=False):
         })
 
 
-    saved_questions = _insert_missing_rows(
-        "questions",
-        experience_id,
-        question_rows,
-        ("question", "category", "subcategory", "source_section", "difficulty"),
-    )
+    saved_questions = _save_questions(experience_id, question_rows)
 
 
     # -----------------------------------------
