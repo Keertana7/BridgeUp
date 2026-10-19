@@ -76,6 +76,13 @@ export default function Dashboard() {
                 link="Read stories →"
                 onClick={() => navigate('/student-stories')}
               />
+              <ActionCard
+                iconBg="#E3F8EE" icon="♡" iconColor="#1E8A4C"
+                title="Emotional Support"
+                desc="Talk through interview stress or a difficult day with your supportive BridgeUp companion."
+                link="Talk it through →"
+                onClick={() => navigate('/talk')}
+              />
             </div>
           </section>
 
@@ -108,4 +115,3 @@ function ActionCard({ iconBg, icon, iconColor, title, desc, link, onClick }) {
     </div>
   );
 }
-

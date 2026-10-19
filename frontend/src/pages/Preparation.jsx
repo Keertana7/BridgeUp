@@ -1,282 +1,358 @@
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
+import {
+  fetchAdvice,
+  fetchCompanies,
+  fetchQuestions,
+  generateQuestions,
+} from '../api/preparation';
+import './Preparation.css';
 
-// ---------------------------------------------------------------------------
-// Mock data
-// ---------------------------------------------------------------------------
-
-const DSA_TOPICS = [
+const TOPIC_GROUPS = [
   {
-    id: 'arrays',
-    icon: '🔢',
-    title: 'Arrays',
-    description: 'Traversal, two-pointer, sliding window, prefix sums, and common manipulation problems.',
-    questions: 42,
+    id: 'dsa',
+    category: 'DSA',
+    icon: '⌘',
+    title: 'Data Structures & Algorithms',
+    subtitle: 'Build problem-solving confidence with interview questions.',
+    topics: [
+      ['Arrays', 'Traversal, two pointers, sliding windows and prefix sums.'],
+      ['Strings', 'Pattern matching, anagrams, palindromes and parsing.'],
+      ['Linked Lists', 'Reversal, cycle detection, merging and pointers.'],
+      ['Stacks & Queues', 'Monotonic stacks, queue patterns and applications.'],
+      ['Trees & Graphs', 'Traversals, search, shortest paths and connectivity.'],
+      ['Dynamic Programming', 'Memoization, tabulation and classic DP patterns.'],
+      ['Sorting & Searching', 'Binary search, merge sort and search patterns.'],
+    ],
   },
   {
-    id: 'strings',
-    icon: '🔤',
-    title: 'Strings',
-    description: 'Pattern matching, anagrams, palindromes, and string manipulation techniques.',
-    questions: 35,
+    id: 'core',
+    category: 'Core',
+    icon: '▤',
+    title: 'Core Subjects',
+    subtitle: 'Revisit the CS fundamentals interviewers like to explore.',
+    topics: [
+      ['DBMS', 'Normalization, SQL, transactions, indexing and joins.'],
+      ['Operating Systems', 'Processes, threads, scheduling and memory.'],
+      ['Computer Networks', 'TCP/IP, HTTP, DNS, routing and network basics.'],
+      ['OOP', 'Object-oriented principles, SOLID and design patterns.'],
+      ['Software Engineering', 'SDLC, Agile, testing and version control.'],
+    ],
   },
   {
-    id: 'linked-lists',
-    icon: '🔗',
-    title: 'Linked Lists',
-    description: 'Reversal, cycle detection, merging, and pointer manipulation problems.',
-    questions: 28,
-  },
-  {
-    id: 'stacks-queues',
-    icon: '📦',
-    title: 'Stacks & Queues',
-    description: 'Monotonic stacks, queue implementations, and real-world application problems.',
-    questions: 24,
-  },
-  {
-    id: 'trees',
-    icon: '🌳',
-    title: 'Trees',
-    description: 'Binary trees, BSTs, traversals, height, LCA, and tree DP problems.',
-    questions: 38,
-  },
-  {
-    id: 'graphs',
-    icon: '🕸️',
-    title: 'Graphs',
-    description: 'BFS, DFS, shortest paths, cycle detection, topological sort, and connected components.',
-    questions: 32,
-  },
-  {
-    id: 'dynamic-programming',
-    icon: '⚡',
-    title: 'Dynamic Programming',
-    description: 'Memoization, tabulation, classic DP problems — knapsack, LCS, LIS, and matrix DP.',
-    questions: 45,
-  },
-  {
-    id: 'sorting-searching',
-    icon: '🔍',
-    title: 'Sorting & Searching',
-    description: 'Binary search patterns, merge sort, quicksort, and search in rotated arrays.',
-    questions: 22,
+    id: 'apt',
+    category: 'Aptitude',
+    icon: '◉',
+    title: 'Aptitude',
+    subtitle: 'Practice quantitative, logical and verbal reasoning questions.',
+    topics: [
+      ['Quantitative Aptitude', 'Numbers, percentages, ratios, time and averages.'],
+      ['Logical Reasoning', 'Sequences, syllogisms, arrangements and puzzles.'],
+      ['Verbal Ability', 'Comprehension, sentence correction and vocabulary.'],
+    ],
   },
 ];
 
-const CORE_SUBJECTS = [
-  {
-    id: 'dbms',
-    icon: '🗄️',
-    title: 'DBMS',
-    description: 'Normalization, SQL queries, transactions, ACID properties, indexing, and joins.',
-    questions: 40,
-  },
-  {
-    id: 'os',
-    icon: '💻',
-    title: 'Operating Systems',
-    description: 'Processes, threads, scheduling, memory management, deadlocks, and paging.',
-    questions: 38,
-  },
-  {
-    id: 'cn',
-    icon: '🌐',
-    title: 'Computer Networks',
-    description: 'OSI model, TCP/IP, HTTP, DNS, routing protocols, and network security basics.',
-    questions: 35,
-  },
-  {
-    id: 'oop',
-    icon: '🧩',
-    title: 'OOP',
-    description: 'Encapsulation, inheritance, polymorphism, abstraction, SOLID principles, and design patterns.',
-    questions: 30,
-  },
-  {
-    id: 'se',
-    icon: '🛠️',
-    title: 'Software Engineering',
-    description: 'SDLC models, Agile, testing types, version control concepts, and system design basics.',
-    questions: 25,
-  },
+const ADVICE_TYPES = [
+  { id: 'advice', label: 'Advice', description: 'Guidance students found useful.' },
+  { id: 'mistake', label: 'Mistakes', description: 'Pitfalls others learned from.' },
+  { id: 'preparation', label: 'Preparation tips', description: 'Ways to prepare with intention.' },
+  { id: 'remember', label: 'Important points', description: 'Helpful reminders to keep close.' },
 ];
-
-const APTITUDE_TOPICS = [
-  {
-    id: 'quant',
-    icon: '🔣',
-    title: 'Quantitative Aptitude',
-    description: 'Numbers, percentages, ratios, time & work, time & distance, profit & loss, and averages.',
-    questions: 60,
-  },
-  {
-    id: 'logical',
-    icon: '🧠',
-    title: 'Logical Reasoning',
-    description: 'Series, syllogisms, blood relations, seating arrangements, direction sense, and puzzles.',
-    questions: 50,
-  },
-  {
-    id: 'verbal',
-    icon: '📖',
-    title: 'Verbal Ability',
-    description: 'Reading comprehension, sentence correction, vocabulary, fill in the blanks, and grammar.',
-    questions: 45,
-  },
-];
-
-// ---------------------------------------------------------------------------
-// Topic card component — reused for all three sections
-// ---------------------------------------------------------------------------
-
-function TopicCard({ topic, buttonLabel }) {
-  return (
-    <div className="card" style={cardStyles.card}>
-      <div style={cardStyles.top}>
-        <span style={cardStyles.icon}>{topic.icon}</span>
-        <div style={cardStyles.meta}>
-          <span style={cardStyles.questionCount}>{topic.questions} questions</span>
-        </div>
-      </div>
-      <h3 style={cardStyles.title}>{topic.title}</h3>
-      <p style={cardStyles.desc}>{topic.description}</p>
-      <button
-        className="btn-primary"
-        style={cardStyles.btn}
-        onClick={() => {
-          // Placeholder — will connect to question pages when backend is ready
-          alert(`${topic.title} — coming soon!`);
-        }}
-      >
-        {buttonLabel}
-      </button>
-    </div>
-  );
-}
-
-const cardStyles = {
-  card:          { padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.65rem', background: '#FFFFFF' },
-  top:           { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' },
-  icon:          { fontSize: '1.85rem' },
-  meta:          { display: 'flex', alignItems: 'center' },
-  questionCount: { fontSize: '0.79rem', color: '#5B8DEF', background: '#E8F1FF', padding: '0.22rem 0.65rem', borderRadius: '12px', fontWeight: 700, border: '1px solid #BDD4F8' },
-  title:         { fontSize: '1rem', fontWeight: 700, color: '#24213A' },
-  desc:          { fontSize: '0.88rem', color: '#857FA8', lineHeight: 1.65, flex: 1 },
-  btn:           { marginTop: '0.5rem', padding: '0.55rem 1rem', fontSize: '0.88rem', width: '100%', textAlign: 'center' },
-};
-
-// ---------------------------------------------------------------------------
-// Section wrapper — heading + grid of cards
-// ---------------------------------------------------------------------------
-
-function PrepSection({ id, icon, title, subtitle, topics, buttonLabel }) {
-  return (
-    <section id={id} style={sectionStyles.section}>
-      <div style={sectionStyles.header}>
-        <div style={sectionStyles.headerLeft}>
-          <span style={sectionStyles.sectionIcon}>{icon}</span>
-          <div>
-            <h2 style={sectionStyles.sectionTitle}>{title}</h2>
-            <p style={sectionStyles.sectionSub}>{subtitle}</p>
-          </div>
-        </div>
-      </div>
-      <div className="card-grid">
-        {topics.map((topic) => (
-          <TopicCard key={topic.id} topic={topic} buttonLabel={buttonLabel} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-const sectionStyles = {
-  section:      { marginBottom: '3.25rem' },
-  header:       { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.4rem', paddingBottom: '1.1rem', borderBottom: '2px solid #E2DDF2', flexWrap: 'wrap', gap: '0.75rem' },
-  headerLeft:   { display: 'flex', alignItems: 'center', gap: '0.9rem' },
-  sectionIcon:  { fontSize: '1.9rem', lineHeight: 1 },
-  sectionTitle: { fontSize: '1.3rem', fontWeight: 800, color: '#24213A', marginBottom: '0.15rem' },
-  sectionSub:   { fontSize: '0.9rem', color: '#857FA8' },
-};
-
-// ---------------------------------------------------------------------------
-// Main page
-// ---------------------------------------------------------------------------
 
 export default function Preparation() {
   const navigate = useNavigate();
+  const [activeCategory, setActiveCategory] = useState('');
+  const [questions, setQuestions] = useState([]);
+  const [questionLoading, setQuestionLoading] = useState(false);
+  const [questionError, setQuestionError] = useState('');
+  const [adviceType, setAdviceType] = useState('advice');
+  const [advice, setAdvice] = useState([]);
+  const [adviceLoading, setAdviceLoading] = useState(false);
+  const [adviceError, setAdviceError] = useState('');
+  const [companies, setCompanies] = useState([]);
+  const [companyError, setCompanyError] = useState('');
+  const [company, setCompany] = useState('');
+  const [generateCategory, setGenerateCategory] = useState('DSA');
+  const [questionCount, setQuestionCount] = useState(5);
+  const [generated, setGenerated] = useState([]);
+  const [generateLoading, setGenerateLoading] = useState(false);
+  const [generateError, setGenerateError] = useState('');
+  const questionsRef = useRef(null);
+
+  useEffect(() => {
+    if (!activeCategory) return undefined;
+    const controller = new AbortController();
+    setQuestions([]);
+    setQuestionError('');
+    setQuestionLoading(true);
+
+    fetchQuestions(activeCategory, { signal: controller.signal })
+      .then(setQuestions)
+      .catch((error) => {
+        if (error.name !== 'AbortError') setQuestionError(error.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setQuestionLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [activeCategory]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setAdvice([]);
+    setAdviceError('');
+    setAdviceLoading(true);
+
+    fetchAdvice(adviceType, { signal: controller.signal })
+      .then(setAdvice)
+      .catch((error) => {
+        if (error.name !== 'AbortError') setAdviceError(error.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAdviceLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [adviceType]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchCompanies({ signal: controller.signal })
+      .then(setCompanies)
+      .catch((error) => {
+        if (error.name !== 'AbortError') setCompanyError(error.message);
+      });
+    return () => controller.abort();
+  }, []);
+
+  function showQuestions(category) {
+    setActiveCategory(category);
+    window.requestAnimationFrame(() => {
+      questionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  async function handleGenerate(event) {
+    event.preventDefault();
+    if (!company.trim() || generateLoading) return;
+    setGenerateError('');
+    setGenerated([]);
+    setGenerateLoading(true);
+    try {
+      const response = await generateQuestions({
+        company: company.trim(),
+        category: generateCategory,
+        count: questionCount,
+      });
+      setGenerated(response.questions);
+    } catch (error) {
+      setGenerateError(error.message);
+    } finally {
+      setGenerateLoading(false);
+    }
+  }
+
+  const selectedGroup = TOPIC_GROUPS.find((group) => group.category === activeCategory);
 
   return (
     <div className="app-layout">
       <Navbar />
-
       <main className="app-main">
-        <div className="page-container">
-
-          {/* Page header */}
-          <div style={pageStyles.pageHeader}>
-            <button
-              className="btn-ghost"
-              style={pageStyles.backBtn}
-              onClick={() => navigate('/dashboard')}
-            >
+        <div className="page-container prep-page">
+          <header className="ph prep-header">
+            <button className="btn-ghost prep-back" onClick={() => navigate('/dashboard')}>
               ← Dashboard
             </button>
-            <h1 style={pageStyles.pageTitle}>Preparation</h1>
-            <p style={pageStyles.pageSubtitle}>
-              Prepare smarter with topics commonly asked in placement interviews.
+            <span className="prep-eyebrow">YOUR NEXT STEP, AT YOUR PACE</span>
+            <h1 className="ph-title">Prepare with purpose.</h1>
+            <p className="ph-sub">
+              Practice real interview questions, learn from other students and get a little help when you need it.
             </p>
+            <nav className="prep-jump-links" aria-label="Preparation sections">
+              <a href="#dsa">DSA</a>
+              <a href="#core">Core subjects</a>
+              <a href="#apt">Aptitude</a>
+              <a href="#insights">Advice & insights</a>
+              <a href="#ask-generate">Ask & generate</a>
+              <button type="button" onClick={() => navigate('/talk')}>Emotional support</button>
+            </nav>
+          </header>
 
-            {/* Quick jump links */}
-            <div style={pageStyles.jumpLinks}>
-              <a href="#dsa"  style={pageStyles.jumpLink}>DSA</a>
-              <a href="#core" style={pageStyles.jumpLink}>Core Subjects</a>
-              <a href="#apt"  style={pageStyles.jumpLink}>Aptitude</a>
+          {activeCategory && (
+            <section className="prep-question-panel" ref={questionsRef} aria-live="polite">
+              <div className="prep-panel-heading">
+                <div>
+                  <span className="prep-eyebrow">QUESTIONS FROM REAL EXPERIENCES</span>
+                  <h2>{selectedGroup?.title || activeCategory} practice</h2>
+                </div>
+                <button className="prep-text-button" onClick={() => navigate('/talk')}>
+                  Need a breather? Talk with us →
+                </button>
+              </div>
+              {questionLoading && <p className="prep-state">Finding questions for you…</p>}
+              {questionError && <p className="prep-error" role="alert">{questionError}</p>}
+              {!questionLoading && !questionError && questions.length === 0 && (
+                <div className="prep-empty">
+                  <strong>No questions in this category yet.</strong>
+                  <span>Try Ask & Generate for a practice set inspired by a company.</span>
+                  <a href="#ask-generate">Create practice questions ↓</a>
+                </div>
+              )}
+              {!questionLoading && !questionError && questions.length > 0 && (
+                <ol className="prep-question-list">
+                  {questions.map((question, index) => (
+                    <li key={question.id || `${question.question}-${index}`}>
+                      <span className="prep-question-number">{String(index + 1).padStart(2, '0')}</span>
+                      <div>
+                        <div className="prep-question-tags">
+                          <span>{question.category}</span>
+                          {question.subcategory && <span>{question.subcategory}</span>}
+                          {question.difficulty && <span>{question.difficulty}</span>}
+                        </div>
+                        <p>{question.question}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          )}
+
+          {TOPIC_GROUPS.map((group) => (
+            <section id={group.id} className="prep-topic-section" key={group.id}>
+              <div className="prep-section-heading">
+                <span className="prep-section-icon" aria-hidden="true">{group.icon}</span>
+                <div>
+                  <h2>{group.title}</h2>
+                  <p>{group.subtitle}</p>
+                </div>
+              </div>
+              <div className="prep-topic-grid">
+                {group.topics.map(([title, description]) => (
+                  <article className="prep-topic-card" key={title}>
+                    <span className="prep-topic-label">{group.category} · PRACTICE</span>
+                    <h3>{title}</h3>
+                    <p>{description}</p>
+                    <button onClick={() => showQuestions(group.category)}>
+                      View interview questions <span aria-hidden="true">→</span>
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ))}
+
+          <section id="insights" className="prep-community-section">
+            <div className="prep-section-heading">
+              <span className="prep-section-icon" aria-hidden="true">✳</span>
+              <div>
+                <h2>Advice & insights</h2>
+                <p>Notes from students who have been through the process.</p>
+              </div>
             </div>
-          </div>
+            <div className="prep-advice-tabs" role="tablist" aria-label="Advice type">
+              {ADVICE_TYPES.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={adviceType === item.id}
+                  className={adviceType === item.id ? 'selected' : ''}
+                  onClick={() => setAdviceType(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <p className="prep-advice-description">
+              {ADVICE_TYPES.find((item) => item.id === adviceType)?.description}
+            </p>
+            {adviceLoading && <p className="prep-state">Gathering community insights…</p>}
+            {adviceError && <p className="prep-error" role="alert">{adviceError}</p>}
+            {!adviceLoading && !adviceError && advice.length === 0 && (
+              <p className="prep-empty">No community notes in this collection yet. Check back as students share their experiences.</p>
+            )}
+            {!adviceLoading && !adviceError && advice.length > 0 && (
+              <div className="prep-advice-list">
+                {advice.map((item) => <article key={item.id}>{item.content}</article>)}
+              </div>
+            )}
+          </section>
 
-          {/* 1. DSA */}
-          <PrepSection
-            id="dsa"
-            icon="💻"
-            title="Data Structures & Algorithms"
-            subtitle="Fundamental topics for coding rounds at every company."
-            topics={DSA_TOPICS}
-            buttonLabel="Practice"
-          />
+          <section id="ask-generate" className="prep-generate-section">
+            <div className="prep-generate-intro">
+              <span className="prep-eyebrow">A PERSONAL PRACTICE SET</span>
+              <h2>Ask & generate</h2>
+              <p>Choose a company and topic to make fresh practice questions inspired by BridgeUp interview experiences.</p>
+              <p className="prep-ai-note">Generated questions are practice prompts, not claims about what was asked in an interview.</p>
+            </div>
+            <div className="prep-generate-content">
+              <form className="prep-generate-form" onSubmit={handleGenerate}>
+                <label htmlFor="prep-company">Company</label>
+                <input
+                  id="prep-company"
+                  list="prep-company-options"
+                  value={company}
+                  onChange={(event) => setCompany(event.target.value)}
+                  placeholder="Choose or enter a company"
+                  required
+                />
+                <datalist id="prep-company-options">
+                  {companies.map((item) => <option key={item.id} value={item.name} />)}
+                </datalist>
+                {companyError && <span className="prep-field-note">{companyError}</span>}
+                <label htmlFor="prep-category">Practice area</label>
+                <select id="prep-category" value={generateCategory} onChange={(event) => setGenerateCategory(event.target.value)}>
+                  <option value="DSA">DSA</option>
+                  <option value="Core">Core subjects</option>
+                  <option value="Aptitude">Aptitude</option>
+                </select>
+                <label htmlFor="prep-question-count">
+                  Number of questions <span>{questionCount}</span>
+                </label>
+                <input
+                  id="prep-question-count"
+                  type="range"
+                  min="1"
+                  max="15"
+                  value={questionCount}
+                  onChange={(event) => setQuestionCount(Number(event.target.value))}
+                />
+                <button className="btn-primary" type="submit" disabled={generateLoading || !company.trim()}>
+                  {generateLoading ? 'Creating your practice set…' : 'Generate practice questions'}
+                </button>
+                {generateError && <p className="prep-error" role="alert">{generateError}</p>}
+              </form>
+              <div className="prep-generated" aria-live="polite">
+                {generated.length ? (
+                  <>
+                    <h3>{company} · {generateCategory}</h3>
+                    <ol>{generated.map((question, index) => <li key={`${index}-${question}`}>{question}</li>)}</ol>
+                  </>
+                ) : (
+                  <div className="prep-generated-empty">
+                    <span aria-hidden="true">✳</span>
+                    <strong>Your practice set will appear here.</strong>
+                    <p>Pick a company and topic to get started.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
 
-          {/* 2. Core Subjects */}
-          <PrepSection
-            id="core"
-            icon="📘"
-            title="Core Subjects"
-            subtitle="Essential CS theory asked in technical interviews."
-            topics={CORE_SUBJECTS}
-            buttonLabel="Study"
-          />
-
-          {/* 3. Aptitude */}
-          <PrepSection
-            id="apt"
-            icon="🧮"
-            title="Aptitude"
-            subtitle="Quantitative, logical, and verbal sections tested in most online assessments."
-            topics={APTITUDE_TOPICS}
-            buttonLabel="Practice"
-          />
-
+          <section className="prep-support-banner">
+            <div>
+              <span className="prep-eyebrow">YOU DON’T HAVE TO FIGURE IT ALL OUT ALONE</span>
+              <h2>Need to talk through a tough day?</h2>
+              <p>Meet your supportive BridgeUp companion for a kind, judgment-free conversation.</p>
+            </div>
+            <button className="btn-primary" onClick={() => navigate('/talk')}>Open emotional support chat →</button>
+          </section>
         </div>
       </main>
     </div>
   );
 }
-
-const pageStyles = {
-  pageHeader:   { marginBottom: '2.75rem', paddingBottom: '1.75rem', borderBottom: '2px solid #E2DDF2' },
-  backBtn:      { padding: '0.4rem 0', fontSize: '0.88rem', marginBottom: '1rem', display: 'inline-block' },
-  pageTitle:    { fontSize: '2rem', fontWeight: 800, color: '#24213A', letterSpacing: '-0.025em', marginBottom: '0.4rem' },
-  pageSubtitle: { fontSize: '0.97rem', color: '#857FA8', marginBottom: '1.4rem' },
-  jumpLinks:    { display: 'flex', gap: '0.6rem', flexWrap: 'wrap' },
-  jumpLink:     { padding: '0.35rem 1rem', border: '2px solid #D4CBFF', borderRadius: '100px', fontSize: '0.85rem', fontWeight: 700, color: '#7C5CFC', textDecoration: 'none', background: '#FFFFFF', transition: 'background 0.15s, transform 0.15s' },
-};

@@ -18,7 +18,8 @@ export async function apiFetch(path, options = {}) {
       headers: { 'Content-Type': 'application/json', ...options.headers },
       ...options,
     });
-  } catch {
+  } catch (error) {
+    if (error.name === 'AbortError') throw error;
     // Network-level failure (backend not running, CORS preflight blocked, etc.)
     throw new Error('Cannot reach the server. Please make sure the backend is running.');
   }

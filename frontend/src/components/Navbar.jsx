@@ -23,6 +23,7 @@ export default function Navbar() {
           <Link to="/dashboard">Dashboard</Link>
           <Link to="/companies">Companies</Link>
           <Link to="/preparation">Preparation</Link>
+          <Link to="/talk">Talk to me</Link>
           <button className="nav-logout" onClick={logout}>Logout</button>
         </div>
 
@@ -44,6 +45,7 @@ export default function Navbar() {
           <NavLink className="nav-mobile-link" to="/dashboard"   onClick={() => setOpen(false)}>Dashboard</NavLink>
           <NavLink className="nav-mobile-link" to="/companies"   onClick={() => setOpen(false)}>Companies</NavLink>
           <NavLink className="nav-mobile-link" to="/preparation" onClick={() => setOpen(false)}>Preparation</NavLink>
+          <NavLink className="nav-mobile-link" to="/talk"        onClick={() => setOpen(false)}>Emotional support</NavLink>
           <button  className="nav-mobile-logout" onClick={logout}>Logout</button>
         </div>
       )}

@@ -8,6 +8,7 @@ import Companies         from './pages/Companies';
 import Experiences       from './pages/Experiences';
 import ExperienceDetails from './pages/ExperienceDetails';
 import Preparation       from './pages/Preparation';
+import EmotionalSupport  from './pages/EmotionalSupport';
 import StudentStories    from './pages/StudentStories';
 import StudentStoryDetails from './pages/StudentStoryDetails';
 import ProtectedRoute    from './components/ProtectedRoute';
@@ -38,6 +39,9 @@ function App() {
         } />
         <Route path="/preparation" element={
           <ProtectedRoute><Preparation /></ProtectedRoute>
+        } />
+        <Route path="/talk" element={
+          <ProtectedRoute><EmotionalSupport /></ProtectedRoute>
         } />
         <Route path="/student-stories" element={
           <ProtectedRoute><StudentStories /></ProtectedRoute>
