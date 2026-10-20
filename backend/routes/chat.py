@@ -87,7 +87,7 @@ Respond naturally and supportively.
             prompt=prompt,
             system_instruction=system_instruction,
             temperature=0.8,
-            max_output_tokens=700
+            max_output_tokens=2000
         )
 
         return {"response": response}
