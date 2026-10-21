@@ -1,22 +1,17 @@
-/**
- * Wraps a page that requires authentication.
- * Redirects to /login if there is no active Supabase session.
- * Shows nothing while the initial session check is still loading.
- */
 import { Navigate } from 'react-router-dom';
-import { useAuth } from '../lib/AuthContext';
+import { useAuth } from '../context/AuthContext';
+import LoadingSpinner from './LoadingSpinner';
 
+/**
+ * Wraps a route so it is only accessible to authenticated users.
+ * While the session is loading (first render) it shows a spinner.
+ * Once loaded, unauthenticated users are redirected to /login.
+ */
 export default function ProtectedRoute({ children }) {
-  const { session, loading } = useAuth();
+  const { loading, isAuthenticated } = useAuth();
 
-  if (loading) {
-    // Still checking — render nothing to avoid flash
-    return null;
-  }
-
-  if (!session) {
-    return <Navigate to="/login" replace />;
-  }
+  if (loading) return <LoadingSpinner message="Checking authentication..." />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
 
   return children;
 }
