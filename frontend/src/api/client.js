@@ -42,7 +42,7 @@ export class ApiError extends Error {
  * @param {'primary'|'ai'} base  Which backend to target (default: `primary`)
  * @returns {Promise<unknown>} Parsed JSON response
  */
-async function apiFetch(path, opts = {}, base = 'primary') {
+export async function apiFetch(path, opts = {}, base = 'primary') {
   const baseUrl = base === 'ai' ? AI_BASE : PRIMARY_BASE;
   const url = `${baseUrl}${path}`;
 
@@ -236,7 +236,8 @@ export const authApi = {
 export const aiApi = {
   /**
    * Generates practice questions using Gemini + real DB data.
-   * @param {{ company: string, category: string, count?: number }} payload
+   * @param {{ company: string, category: string, count?: number, prompt?: string }} payload
+   * @returns {Promise<{ questions: string[], analysis: string, patterns: string[], historical_question_count: number }>}
    */
   generateQuestions: (payload) =>
     apiFetch('/ai/generate-questions', { method: 'POST', body: JSON.stringify(payload) }, 'ai'),

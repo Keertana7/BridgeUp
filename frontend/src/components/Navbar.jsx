@@ -29,6 +29,9 @@ export default function Navbar() {
           <NavLink to="/questions" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             Questions
           </NavLink>
+          <NavLink to="/ask-generate" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+            Ask &amp; Generate
+          </NavLink>
           <NavLink to="/advice" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             Advice
           </NavLink>

@@ -60,6 +60,23 @@
 .prep-generated-empty > span { color: var(--p); font-size: 1.7rem; }
 .prep-generated-empty strong { margin-top: .4rem; color: var(--text); font-size: .9rem; }
 .prep-generated-empty p { margin: .2rem 0 0; color: var(--muted); font-size: .8rem; }
+.ask-generate-page { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+.ask-generate-page .prep-generate-form textarea { width: 100%; min-height: 100px; padding: .65rem .7rem; resize: vertical; border: 1px solid var(--border-2); border-radius: var(--r-sm); color: var(--text); background: white; font: inherit; font-size: .84rem; }
+.ask-generate-page .prep-generate-form textarea:focus, .ask-generate-page .prep-generate-form input:focus, .ask-generate-page .prep-generate-form select:focus { outline: 2px solid var(--p-mid); outline-offset: 1px; }
+.ask-generate-submit { margin-top: .4rem; padding: .65rem 1rem; border: 0; border-radius: var(--r-sm); color: white; background: var(--p); font-size: .86rem; font-weight: 800; cursor: pointer; }
+.ask-generate-submit:hover:not(:disabled) { background: var(--p-dark); }
+.ask-generate-submit:disabled { cursor: not-allowed; opacity: .65; }
+.ask-generate-page .prep-generated { min-width: 0; }
+.ask-generate-page .prep-generated .empty-state { min-height: 170px; }
+.ask-generate-result-heading { margin-bottom: 1rem; padding-bottom: .75rem; border-bottom: 1px solid var(--border); }
+.ask-generate-result-heading p { margin-top: .25rem; color: var(--muted); font-size: .78rem; }
+.ask-generate-result-section { margin-top: 1rem; }
+.ask-generate-result-section h4 { margin-bottom: .4rem; color: var(--text); font-size: .88rem; }
+.ask-generate-result-section > p, .ask-generate-result-section li { color: var(--text-2); font-size: .84rem; line-height: 1.65; }
+.ask-generate-result-section ul, .ask-generate-result-section ol { display: grid; gap: .5rem; padding-left: 1.25rem; }
+.ask-generate-practice { padding: .9rem; border: 1px solid var(--p-mid); border-radius: var(--r); background: white; }
+.ask-generate-disclaimer { margin-bottom: .65rem; color: var(--muted) !important; font-size: .76rem !important; }
+.ask-generate-page .prep-field-note { margin: 0; color: var(--muted); }
 .prep-support-banner { margin: 2.5rem 0; padding: 1.4rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; border: 1px solid #d5ebdf; border-radius: var(--r-lg); background: #f1faf5; }
 .prep-support-banner h2 { margin: .35rem 0; color: var(--text); font-size: 1.15rem; }
 .prep-support-banner p { margin: 0; color: var(--muted); font-size: .82rem; }

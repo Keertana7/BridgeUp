@@ -1,4 +1,4 @@
-import { apiFetch } from './client';
+import { aiApi, apiFetch } from './client';
 
 export function fetchQuestions(category, options = {}) {
   return apiFetch(`/questions/?category=${encodeURIComponent(category)}`, options);
@@ -13,10 +13,7 @@ export function fetchCompanies(options = {}) {
 }
 
 export function generateQuestions(payload) {
-  return apiFetch('/ai/generate-questions', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+  return aiApi.generateQuestions(payload);
 }
 
 export function sendChatMessage(message, history) {
