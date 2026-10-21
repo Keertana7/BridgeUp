@@ -138,7 +138,7 @@ export default function AskGeneratePage() {
                     className="ask-generate-submit"
                     disabled={loading || !company || !category || Number(count) < 1 || Number(count) > 15}
                   >
-                    {loading ? 'Working…' : 'Ask & Generate'}
+                    {loading ? 'Generating…' : 'Generate Questions'}
                   </button>
                 </form>
 

@@ -16,6 +16,7 @@ import AdvicePage from './pages/AdvicePage';
 import ResourcesPage from './pages/ResourcesPage';
 import ChatPage from './pages/ChatPage';
 import AskGeneratePage from './pages/AskGeneratePage';
+import EmotionalSupport from './pages/EmotionalSupport';
 import UploadPage from './pages/UploadPage';
 
 import './App.css';
@@ -103,6 +104,14 @@ export default function App() {
                 element={
                   <ProtectedRoute>
                     <ChatPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/talk"
+                element={
+                  <ProtectedRoute>
+                    <EmotionalSupport />
                   </ProtectedRoute>
                 }
               />
