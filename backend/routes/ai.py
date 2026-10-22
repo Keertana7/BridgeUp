@@ -11,7 +11,7 @@ from schemas.ai import (
     GenerateQuestionsResponse,
 )
 from services.database import supabase
-from services.gemini import generate_text
+from services.nvidia_service import generate_text
 
 router = APIRouter(prefix="/ai", tags=["AI"])
 logger = logging.getLogger(__name__)

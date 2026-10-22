@@ -1,4 +1,4 @@
-import { aiApi, apiFetch } from './client';
+import { aiApi, apiFetch, chatApi } from './client';
 
 export function fetchQuestions(category, options = {}) {
   return apiFetch(`/questions/?category=${encodeURIComponent(category)}`, options);
@@ -17,8 +17,5 @@ export function generateQuestions(payload) {
 }
 
 export function sendChatMessage(message, history) {
-  return apiFetch('/chat', {
-    method: 'POST',
-    body: JSON.stringify({ message, history }),
-  });
+  return chatApi.send({ message, history });
 }
