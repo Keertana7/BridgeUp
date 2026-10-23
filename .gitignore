@@ -1,12 +1,9 @@
 .env
-<<<<<<< HEAD
-*.json
+.vscode/
+.venv/
+venv/
 backend/venv/
 __pycache__/
-*.pyc
+*.py[cod]
 data/pdfs/
 data/extracted/
-=======
-venv/
-__pycache__/
->>>>>>> a1a8f02 (Complete core backend)

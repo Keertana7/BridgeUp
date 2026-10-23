@@ -235,7 +235,7 @@ export const authApi = {
 
 export const aiApi = {
   /**
-   * Generates practice questions using Gemini + real DB data.
+   * Generates practice questions using the configured AI provider + real DB data.
    * @param {{ company: string, category: string, count?: number, prompt?: string }} payload
    * @returns {Promise<{ questions: string[], analysis: string, patterns: string[], historical_question_count: number }>}
    */

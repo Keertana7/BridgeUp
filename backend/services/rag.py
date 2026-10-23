@@ -1,6 +1,6 @@
 from services.database import supabase
 from services.embeddings import create_query_embedding
-from services.gemini import generate_text
+from services.nvidia_service import generate_text
 
 
 def retrieve_chunks(
