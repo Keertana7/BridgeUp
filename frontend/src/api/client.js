@@ -42,7 +42,7 @@ export class ApiError extends Error {
  * @param {'primary'|'ai'} base  Which backend to target (default: `primary`)
  * @returns {Promise<unknown>} Parsed JSON response
  */
-export async function apiFetch(path, opts = {}, base = 'primary') {
+async function apiFetch(path, opts = {}, base = 'primary') {
   const baseUrl = base === 'ai' ? AI_BASE : PRIMARY_BASE;
   const url = `${baseUrl}${path}`;
 
@@ -158,6 +158,15 @@ export const experiencesApi = {
 
   /** Returns a single experience by UUID */
   get: (id) => apiFetch(`/experiences/${id}`),
+
+  /**
+   * Partially update an experience (e.g. attach metadata after PDF upload).
+   * Only fields provided are written.
+   * @param {string} id  Experience UUID
+   * @param {object} data  Fields to update (company_id, role, batch, etc.)
+   */
+  patch: (id, data) =>
+    apiFetch(`/experiences/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 };
 
 // ---------------------------------------------------------------------------
@@ -236,8 +245,7 @@ export const authApi = {
 export const aiApi = {
   /**
    * Generates practice questions using Gemini + real DB data.
-   * @param {{ company: string, category: string, count?: number, prompt?: string }} payload
-   * @returns {Promise<{ questions: string[], analysis: string, patterns: string[], historical_question_count: number }>}
+   * @param {{ company: string, category: string, count?: number }} payload
    */
   generateQuestions: (payload) =>
     apiFetch('/ai/generate-questions', { method: 'POST', body: JSON.stringify(payload) }, 'ai'),

@@ -176,3 +176,77 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Share Experience CTA ── */
+.share-cta-section {
+  margin-top: 2rem;
+}
+
+.share-cta-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  border-radius: 14px;
+  padding: 1.5rem 2rem;
+}
+
+.share-cta-text {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.share-cta-icon {
+  font-size: 2.2rem;
+  flex-shrink: 0;
+}
+
+.share-cta-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 0.2rem;
+}
+
+.share-cta-desc {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.85);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.share-cta-btn {
+  flex-shrink: 0;
+  padding: 0.65rem 1.4rem;
+  background: #fff;
+  color: #4f46e5;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: background 0.15s, transform 0.15s;
+  white-space: nowrap;
+}
+
+.share-cta-btn:hover {
+  background: #f5f3ff;
+  transform: translateY(-1px);
+}
+
+@media (max-width: 600px) {
+  .share-cta-card {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 1.25rem;
+  }
+
+  .share-cta-btn {
+    width: 100%;
+    text-align: center;
+  }
+}

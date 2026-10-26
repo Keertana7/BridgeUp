@@ -104,6 +104,24 @@ export default function DashboardPage() {
           />
         </div>
       </div>
+
+      {/* Share Experience CTA */}
+      <div className="share-cta-section">
+        <div className="share-cta-card">
+          <div className="share-cta-text">
+            <span className="share-cta-icon">🎓</span>
+            <div>
+              <h2 className="share-cta-title">Attended an interview?</h2>
+              <p className="share-cta-desc">
+                Share your experience with BridgeUp and help your juniors prepare better.
+              </p>
+            </div>
+          </div>
+          <Link to="/share-experience" className="share-cta-btn">
+            Share Your Experience →
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }
