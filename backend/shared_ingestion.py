@@ -8,6 +8,7 @@ INGESTION_DIR = Path(__file__).resolve().parent.parent / "ingestion"
 _SHARED_MODULES = {
     "batch_llm_extract",
     "chunk_experiences",
+    "company_utils",
     "embed_advice_batch",
     "embed_chunks",
     "embed_questions_batch",

@@ -9,7 +9,7 @@
 
 import { supabase } from './supabase';
 
-const PRIMARY_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+const PRIMARY_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const AI_BASE = import.meta.env.VITE_AI_API_URL || 'http://localhost:8000';
 
 // ---------------------------------------------------------------------------
@@ -140,6 +140,13 @@ export const companiesApi = {
 
   /** Returns a single company by UUID */
   get: (id) => apiFetch(`/companies/${id}`),
+
+  /** Reuse a normalized existing company or create it for the authenticated user. */
+  resolve: (name) =>
+    apiFetch('/companies/resolve', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
 };
 
 // ---------------------------------------------------------------------------

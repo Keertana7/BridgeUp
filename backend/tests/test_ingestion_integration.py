@@ -7,7 +7,7 @@ import sys
 import types
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
-
+from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile
 
 
@@ -154,7 +154,7 @@ class PdfUploadTests(unittest.TestCase):
         task = background.tasks[0]
         with patch.dict(sys.modules, {"pdf_ingest": adapter}):
             task.func(*task.args, **task.kwargs)
-        adapter.ingest_pdf.assert_called_once_with(task.args[0])
+        adapter.ingest_pdf.assert_called_once_with(Path(task.args[0]))
         self.assertFalse(os.path.exists(os.path.dirname(task.args[0])))
         self.database.table.assert_any_call("experiences")
         self.database.table.return_value.update.assert_called_once_with(

@@ -10,6 +10,7 @@ from transform import (
     transform_resources
 )
 from pipeline import get_form_submission_id, process_form_response
+from company_utils import get_or_create_company as _get_or_create_company
 
 load_dotenv()
 
@@ -24,31 +25,7 @@ supabase = create_client(
 
 def get_or_create_company(company_name):
     """Get existing company ID or create a new company."""
-
-    if not company_name:
-        return None
-
-    result = (
-        supabase
-        .table("companies")
-        .select("id")
-        .eq("name", company_name)
-        .execute()
-    )
-
-    if result.data:
-        return result.data[0]["id"]
-
-    result = (
-        supabase
-        .table("companies")
-        .insert({
-            "name": company_name
-        })
-        .execute()
-    )
-
-    return result.data[0]["id"]
+    return _get_or_create_company(supabase, company_name)
 
 
 def insert_experience(row):

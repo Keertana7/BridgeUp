@@ -35,24 +35,17 @@ class ExperienceCreate(BaseModel):
 
 class ExperienceUpdate(BaseModel):
     """
-    Request body for partially updating an experience.
-    Every field is optional — only provided fields are written to the database.
+    Request body for updating metadata after PDF upload.
+    Only fields supplied by the frontend are accepted.
     """
+    model_config = {"extra": "forbid"}
     company_id: Optional[uuid.UUID] = None
-    source_type: Optional[SourceType] = None
-    submitted_by: Optional[uuid.UUID] = None
     role: Optional[str] = Field(None, max_length=255)
     batch: Optional[str] = Field(None, max_length=100)
     package: Optional[str] = Field(None, max_length=100)
     opportunity_type: Optional[str] = Field(None, max_length=100)
     selection_status: Optional[str] = Field(None, max_length=100)
-    interview_date: Optional[date] = None
-    difficulty: Optional[str] = Field(None, max_length=100)
-    preparation_duration: Optional[str] = Field(None, max_length=100)
-    content: Optional[dict] = None
-    source_file: Optional[str] = Field(None, max_length=500)
     consent: Optional[bool] = None
-
 
 class ExperienceResponse(BaseModel):
     """

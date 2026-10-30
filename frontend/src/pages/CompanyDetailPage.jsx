@@ -90,12 +90,19 @@ function ExperienceCard({ experience: exp }) {
     Rejected: '#dc2626',
     'On Hold': '#d97706',
   }[exp.selection_status] || '#6b7280';
+  const pdfFilename =
+    exp.source_type === 'pdf' &&
+    typeof exp.source_file === 'string' &&
+    !exp.source_file.startsWith('sha256_')
+      ? exp.source_file.replace(/\.pdf$/i, '')
+      : '';
+  const heading = exp.role || (pdfFilename.trim() ? pdfFilename : null);
 
   return (
     <Link to={`/experiences/${exp.id}`} className="experience-card">
       <div className="experience-card-header">
         <div className="experience-card-role">
-          {exp.role || <span className="field-missing">Role not specified</span>}
+          {heading || <span className="field-missing">Role not specified</span>}
         </div>
         {exp.selection_status && (
           <span

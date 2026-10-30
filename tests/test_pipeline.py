@@ -245,6 +245,49 @@ class PipelineTests(unittest.TestCase):
         query.eq.assert_any_call("source_type", "pdf")
         query.eq.assert_any_call("source_file", "sample.pdf")
 
+    def test_company_lookup_reuses_case_and_space_normalized_name(self):
+        query = Mock()
+        query.execute.return_value.data = [{"id": "company-1", "name": " HSBC "}]
+        table = Mock()
+        table.select.return_value = query
+        self.database.table.return_value = table
+
+        company_id = self.pipeline.get_or_create_company("hsbc")
+
+        self.assertEqual(company_id, "company-1")
+        table.insert.assert_not_called()
+
+    def test_company_creation_trims_name(self):
+        lookup_query = Mock()
+        lookup_query.execute.return_value.data = []
+        insert_query = Mock()
+        insert_query.execute.return_value.data = [{"id": "company-2"}]
+        table = Mock()
+        table.select.return_value = lookup_query
+        table.insert.return_value = insert_query
+        self.database.table.return_value = table
+
+        company_id = self.pipeline.get_or_create_company("  NewCo  ")
+
+        self.assertEqual(company_id, "company-2")
+        table.insert.assert_called_once_with({"name": "NewCo"})
+
+    def test_company_creation_race_reuses_unique_conflict_winner(self):
+        initial_lookup = Mock()
+        initial_lookup.execute.return_value.data = []
+        winner_lookup = Mock()
+        winner_lookup.execute.return_value.data = [{"id": "company-3", "name": "NewCo"}]
+        insert_query = Mock()
+        insert_query.execute.side_effect = RuntimeError("23505 duplicate key")
+        table = Mock()
+        table.select.side_effect = [initial_lookup, winner_lookup]
+        table.insert.return_value = insert_query
+        self.database.table.return_value = table
+
+        company_id = self.pipeline.get_or_create_company(" newco ")
+
+        self.assertEqual(company_id, "company-3")
+
     def configure_pipeline(self, existing=None):
         mocks = {}
 

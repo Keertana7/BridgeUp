@@ -7,33 +7,12 @@ from chunk_experiences import create_chunks_for_experience
 from embed_questions_batch import embed_questions_for_experience
 from embed_advice_batch import embed_advice_for_experience
 from embed_chunks import embed_chunks_for_experience
+from company_utils import get_or_create_company as _get_or_create_company
 
 
 def get_or_create_company(company_name):
     """Return the company ID, creating the company when needed."""
-
-    if not company_name:
-        return None
-
-    result = (
-        supabase
-        .table("companies")
-        .select("id")
-        .eq("name", company_name)
-        .execute()
-    )
-
-    if result.data:
-        return result.data[0]["id"]
-
-    result = (
-        supabase
-        .table("companies")
-        .insert({"name": company_name})
-        .execute()
-    )
-
-    return result.data[0]["id"]
+    return _get_or_create_company(supabase, company_name)
 
 
 def _identity_for_experience(experience):

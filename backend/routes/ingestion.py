@@ -59,7 +59,7 @@ def _ingest_uploaded_pdf(
     temp_dir = str(Path(pdf_path).parent)
     try:
         pdf_ingest = load_shared_module("pdf_ingest")
-        result = pdf_ingest.ingest_pdf(pdf_path)
+        result = pdf_ingest.ingest_pdf(Path(pdf_path))
         if not isinstance(result, dict) or result.get("status") != "completed":
             logger.error(
                 "PDF ingestion failed (source_file=%s, experience_id=%s, step=%s): %s",
@@ -203,6 +203,6 @@ def get_pdf_status(
             detail="Could not fetch PDF ingestion status",
         ) from exc
 
-    if not response.data or response.data[0].get("submitted_by") not in (None, user_id):
+    if not response.data or response.data[0].get("submitted_by") not in (None, str(user_id)):
         raise HTTPException(status_code=404, detail="PDF ingestion record was not found")
     return response.data[0]

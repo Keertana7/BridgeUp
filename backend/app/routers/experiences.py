@@ -1,9 +1,12 @@
-from fastapi import APIRouter, HTTPException
 from app.database import supabase
 from app.models.experiences import ExperienceCreate, ExperienceUpdate, ExperienceResponse
 from typing import List, Optional
 import uuid
-
+from fastapi import APIRouter, HTTPException, Depends
+from app.auth import get_current_user
+from services.database import supabase as service_supabase
+import logging
+logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/experiences",
     tags=["Experiences"]
@@ -106,36 +109,104 @@ def create_experience(experience: ExperienceCreate):
         422: {"description": "Invalid UUID or source_type"},
     },
 )
-def update_experience(experience_id: uuid.UUID, experience: ExperienceUpdate):
+def update_experience(
+    experience_id: uuid.UUID,
+    experience: ExperienceUpdate,
+    user: dict = Depends(get_current_user)
+):
     """
-    Partially updates an experience. Only supplied fields are written.
-    Raises 400 for empty body, 404 if not found or new company_id doesn't exist.
+    Updates experience metadata only if the authenticated user owns it.
     """
+
+    # 1. Get authenticated user's ID
+    raw_user_id = user.get("sub")
+
+    try:
+        if not isinstance(raw_user_id, str):
+            raise ValueError("Missing user ID")
+
+        user_id = str(uuid.UUID(raw_user_id))
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authenticated user ID."
+        ) from exc
+
+
+    # 3. Prepare update data
     update_data = experience.model_dump(exclude_none=True)
 
     if not update_data:
-        raise HTTPException(status_code=400, detail="No fields provided to update.")
-
-    if "company_id" in update_data:
-        check_company_exists(experience.company_id)
-        update_data["company_id"] = str(update_data["company_id"])
-    if "submitted_by" in update_data:
-        update_data["submitted_by"] = str(update_data["submitted_by"])
-    if "source_type" in update_data:
-        update_data["source_type"] = str(update_data["source_type"])
-    if "interview_date" in update_data and update_data["interview_date"] is not None:
-        update_data["interview_date"] = update_data["interview_date"].isoformat()
+        raise HTTPException(
+            status_code=400,
+            detail="No fields provided to update."
+        )
 
     try:
-        response = supabase.table("experiences").update(update_data).eq("id", str(experience_id)).execute()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # 4. Fetch existing experience
+        existing = (
+            service_supabase.table("experiences")
+            .select("id, submitted_by")
+            .eq("id", str(experience_id))
+            .limit(1)
+            .execute()
+        )
+
+        # 5. Verify ownership
+        if (
+            not existing.data
+            or existing.data[0].get("submitted_by") != user_id
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail="Experience not found."
+            )
+
+        # 6. Validate company if supplied
+        if "company_id" in update_data:
+            company = (
+                service_supabase.table("companies")
+                .select("id")
+                .eq("id", str(update_data["company_id"]))
+                .limit(1)
+                .execute()
+            )
+
+            if not company.data:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Company not found."
+                )
+
+            update_data["company_id"] = str(update_data["company_id"])
+
+        # 8. Update only the authenticated owner's experience
+        response = (
+            service_supabase.table("experiences")
+            .update(update_data)
+            .eq("id", str(experience_id))
+            .eq("submitted_by", user_id)
+            .select("*")
+            .execute()
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        logger.exception("Experience update failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Experience update failed."
+        ) from exc
 
     if not response.data:
         raise HTTPException(
             status_code=404,
-            detail=f"Experience with id '{experience_id}' not found."
+            detail="Experience not found."
         )
+
     return response.data[0]
 
 

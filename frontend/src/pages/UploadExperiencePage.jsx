@@ -1,6 +1,5 @@
 import { useState, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useFetch } from '../hooks/useFetch';
 import { companiesApi, ingestionApi, experiencesApi } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import './UploadExperiencePage.css';
@@ -21,11 +20,6 @@ const BATCH_YEARS = Array.from({ length: 8 }, (_, i) => CURRENT_YEAR - 2 + i);
 export default function UploadExperiencePage() {
   const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
-
-  // Load existing companies silently — used only to resolve a UUID if the
-  // typed name matches an existing company exactly (case-insensitive).
-  // The user is NOT restricted to this list.
-  const { data: companies } = useFetch(() => companiesApi.list(), []);
 
   // Form field state — field names match the existing experiences table schema
   const [companyName, setCompanyName] = useState('');
@@ -99,9 +93,27 @@ export default function UploadExperiencePage() {
 
     setFieldErrors({});
     setPageStatus('uploading');
-    setStatusMessage('Uploading your PDF…');
+    setStatusMessage('Saving company details…');
+
+    let company;
+    try {
+      company = await companiesApi.resolve(companyName.trim());
+    } catch (err) {
+      setPageStatus('error');
+      setStatusMessage(
+        err?.message || 'Could not save the company. Your PDF was not uploaded.'
+      );
+      return;
+    }
+
+    if (!company?.id) {
+      setPageStatus('error');
+      setStatusMessage('Could not resolve the company. Your PDF was not uploaded.');
+      return;
+    }
 
     // Step 1 — Upload PDF to existing endpoint POST /ingestion/pdfs
+    setStatusMessage('Uploading your PDF…');
     let uploadResult;
     try {
       uploadResult = await ingestionApi.uploadPdf(file);
@@ -130,7 +142,7 @@ export default function UploadExperiencePage() {
         attempts++;
         try {
           const statusResult = await ingestionApi.pdfStatus(sourceFile);
-          if (statusResult?.id) {
+          if (statusResult?.id && statusResult.submitted_by === user?.id) {
             experienceId = statusResult.id;
             clearInterval(pollRef.current);
             resolve();
@@ -148,13 +160,11 @@ export default function UploadExperiencePage() {
     });
 
     if (!experienceId) {
-      // PDF was accepted but experience row not yet created — still success
-      // We can't attach metadata yet; inform the user
-      setPageStatus('success');
+      setPageStatus('error');
       setStatusMessage(
-        'Your PDF was uploaded and is being processed! ' +
-          'Metadata could not be attached yet as processing is still in progress — ' +
-          'the content has been saved and will be available shortly.'
+        'Your PDF was accepted, but processing did not finish in time. ' +
+          'The company and other metadata have not been attached yet. ' +
+          'Please retry after processing completes.'
       );
       return;
     }
@@ -169,29 +179,18 @@ export default function UploadExperiencePage() {
       opportunity_type: opportunityType,
       selection_status: selectionStatus,
       consent: true,
+      company_id: company.id,
     };
     if (packageVal.trim()) metadata.package = packageVal.trim();
-    if (user?.id) metadata.submitted_by = user.id;
-    // Silently resolve company UUID if the typed name matches an existing company.
-    // If it doesn't match (new company), omit company_id — the pipeline will
-    // handle company creation from the PDF content via get_or_create_company.
-    if (companies) {
-      const match = companies.find(
-        (c) => c.name.toLowerCase() === companyName.trim().toLowerCase()
-      );
-      if (match) metadata.company_id = match.id;
-    }
 
     try {
       await experiencesApi.patch(experienceId, metadata);
     } catch (err) {
-      // Metadata patch failed — PDF is still uploaded and being processed
-      setPageStatus('success');
+      setPageStatus('error');
       setStatusMessage(
-        'Your PDF was uploaded successfully! ' +
-          'However, some metadata could not be saved (' +
+        'Your PDF was uploaded, but the company or other metadata could not be saved (' +
           (err?.message || 'unknown error') +
-          '). The content is still being processed.'
+          '). Please retry to associate the company with the experience.'
       );
       return;
     }

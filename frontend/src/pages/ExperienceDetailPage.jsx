@@ -52,6 +52,13 @@ export default function ExperienceDetailPage() {
   if (!experience) return null;
 
   const backUrl = experience.company_id ? `/companies/${experience.company_id}` : '/companies';
+  const pdfFilename =
+    experience.source_type === 'pdf' &&
+    typeof experience.source_file === 'string' &&
+    !experience.source_file.startsWith('sha256_')
+      ? experience.source_file.replace(/\.pdf$/i, '')
+      : '';
+  const heading = experience.role || (pdfFilename.trim() ? pdfFilename : null);
 
   return (
     <div className="exp-detail-page">
@@ -63,7 +70,7 @@ export default function ExperienceDetailPage() {
       <div className="exp-hero">
         <div className="exp-hero-left">
           <h1 className="exp-hero-role">
-            {experience.role || <span className="field-missing">Role not specified</span>}
+            {heading || <span className="field-missing">Role not specified</span>}
           </h1>
           <div className="exp-hero-company">
             {lc ? '…' : (company?.name && (
