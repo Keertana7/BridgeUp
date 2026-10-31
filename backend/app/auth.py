@@ -159,7 +159,7 @@ def get_current_user(
     # Step 2: get the matching public key
     public_key = _get_public_key(kid)
 
-    # Step 3: full verification — signature + expiry + issuer
+    # Step 3: full verification — signature + expiry + issuer + audience
     try:
         payload = jwt.decode(
             token,
@@ -167,6 +167,7 @@ def get_current_user(
             algorithms=["ES256"],
             options={"verify_exp": True},
             issuer=EXPECTED_ISSUER,
+            audience="authenticated",
         )
     except jwt.ExpiredSignatureError:
         raise HTTPException(
