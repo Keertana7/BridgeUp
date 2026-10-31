@@ -124,6 +124,19 @@ def _set_extraction_status(experience_id, status):
     )
 
 
+def _attach_pdf_owner_if_unassigned(experience_id, source_file, submitted_by):
+    (
+        supabase
+        .table("experiences")
+        .update({"submitted_by": submitted_by})
+        .eq("id", experience_id)
+        .eq("source_type", "pdf")
+        .eq("source_file", source_file)
+        .is_("submitted_by", "null")
+        .execute()
+    )
+
+
 def _failure(state, step, error, details=None):
     state["status"] = "failed"
     state["failed_step"] = step
@@ -321,6 +334,15 @@ def process_experience(
     if existing:
         state["experience_id"] = existing["id"]
         state["duplicate"] = True
+        if source_type == "pdf" and experience.get("submitted_by"):
+            try:
+                _attach_pdf_owner_if_unassigned(
+                    state["experience_id"],
+                    identity_value,
+                    experience["submitted_by"],
+                )
+            except Exception as exc:
+                return _failure(state, "associate_pdf_owner", exc)
         extraction_status = existing.get("extraction_status")
         if matched_legacy_id:
             try:
@@ -367,6 +389,10 @@ def process_experience(
                 has_advice = _has_extraction_rows("advice", state["experience_id"])
                 should_extract = not (has_questions and has_advice)
             except Exception as exc:
+                try:
+                    _set_extraction_status(state["experience_id"], "failed")
+                except Exception:
+                    pass
                 return _failure(state, "check_extraction", exc)
 
     if not should_extract:
@@ -413,20 +439,15 @@ def process_experience(
                 pass
             return _failure(state, "save_extraction", exc)
 
-        try:
-            _set_extraction_status(state["experience_id"], "completed")
-        except Exception as exc:
-            try:
-                _set_extraction_status(state["experience_id"], "failed")
-            except Exception:
-                pass
-            return _failure(state, "mark_extraction_completed", exc)
-
     try:
         chunks_created = create_chunks_for_experience(state["experience_id"])
         state["steps"]["create_chunks"] = {"created": chunks_created}
         state["completed_steps"].append("create_chunks")
     except Exception as exc:
+        try:
+            _set_extraction_status(state["experience_id"], "failed")
+        except Exception:
+            pass
         return _failure(state, "create_chunks", exc)
 
     for step, embed, id_field in (
@@ -438,6 +459,10 @@ def process_experience(
             summary = _embedding_summary(embedding_result, id_field)
             state["steps"][step] = summary
             if summary["failed"]:
+                try:
+                    _set_extraction_status(state["experience_id"], "failed")
+                except Exception:
+                    pass
                 return _failure(
                     state,
                     step,
@@ -446,6 +471,10 @@ def process_experience(
                 )
             state["completed_steps"].append(step)
         except Exception as exc:
+            try:
+                _set_extraction_status(state["experience_id"], "failed")
+            except Exception:
+                pass
             return _failure(
                 state,
                 step,
@@ -460,13 +489,26 @@ def process_experience(
         state["steps"]["embed_chunks"] = {"success": chunks_embedded}
         state["completed_steps"].append("embed_chunks")
     except Exception as exc:
+        try:
+            _set_extraction_status(state["experience_id"], "failed")
+        except Exception:
+            pass
         return _failure(state, "embed_chunks", exc)
+
+    try:
+        _set_extraction_status(state["experience_id"], "completed")
+    except Exception as exc:
+        try:
+            _set_extraction_status(state["experience_id"], "failed")
+        except Exception:
+            pass
+        return _failure(state, "mark_extraction_completed", exc)
 
     state["status"] = "completed"
     return state
 
 
-def process_form_response(row):
+def process_form_response(row, form_answers=None):
     """Transform one Google Form response and send it through the pipeline."""
 
     if not isinstance(row, dict):
@@ -573,6 +615,8 @@ def process_form_response(row):
             "content": content,
             "consent": data["consent"] == "I Agree",
         }
+        if form_answers is not None:
+            experience["form_answers"] = form_answers
 
         question_data = transform_questions(row)
         question_sources = (

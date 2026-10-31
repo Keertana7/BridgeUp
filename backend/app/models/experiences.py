@@ -65,6 +65,7 @@ class ExperienceResponse(BaseModel):
     difficulty: Optional[str] = None
     preparation_duration: Optional[str] = None
     content: Optional[Any] = None
+    form_answers: Optional[list[dict[str, Any]]] = None
     source_file: Optional[str] = None
     consent: Optional[bool] = None
     created_at: datetime

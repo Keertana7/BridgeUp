@@ -49,6 +49,25 @@ next scheduled run for recovery, or have the ingestion owner add timeout and
 retry handling to the shared adapter. This backend-only change does not alter
 that shared helper.
 
+## One-time form-answer backfill
+
+The manually triggered backfill reads existing form experiences and source
+rows through the same Supabase service-role client and Google Sheets adapter.
+It matches exact submission IDs and updates only `form_answers`; it does not
+run during normal ingestion or application startup.
+
+From the repository root, preview the proposed changes with:
+
+```powershell
+backend\venv\Scripts\python.exe backend\backfill_form_answers.py --dry-run
+```
+
+Dry-run is the default and saves a JSON report in the current directory. It
+does not update Supabase. Applying changes requires the explicit `--apply`
+option. Before any update, the script saves a local JSON backup of the existing
+`form_answers` values for all records in its update plan. Do not run `--apply`
+until the preview has been reviewed and approved.
+
 ## PDF upload
 
 The authenticated `POST /ingestion/pdfs` endpoint accepts a multipart `file`
@@ -58,13 +77,16 @@ FastAPI `BackgroundTasks`. A SHA-256-derived PDF filename serves as the source
 identity used by the existing adapter's filename deduplication. The source
 identity includes the full SHA-256 fingerprint of the authenticated uploader,
 so identical uploads by one user deduplicate, while separate users retain
-their own status ownership. This also allows the status endpoint to authorize
-an in-progress row before its `submitted_by` field is attached. Renaming the
-same upload does not change its identity. The upload returns HTTP 202 and the
+their own status ownership. The authenticated uploader is stored with the
+experience when its row is created, so the frontend can attach metadata while
+PDF extraction and embedding continue. Renaming the same upload does not
+change its identity. The upload returns HTTP 202 and the
 `source_file` needed to
 query `GET /ingestion/pdf-status?source_file=...`.
 
-The existing PDF adapter records `extraction_status` in the experience row.
+The existing PDF adapter records `extraction_status` in the experience row
+through extraction, chunking, and embedding. The upload form retains the
+`source_file` and resumes polling after a timeout rather than uploading again.
 Inspect backend logs for the source identity and failed pipeline step; retry
 with the same file to resume processing. A failure before the adapter creates
 an experience row is visible in logs but has no database status record.

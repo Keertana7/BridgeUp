@@ -91,6 +91,18 @@ export default function DashboardPage() {
             desc="Explore questions asked across all companies."
           />
           <QuickCard
+            to="/ask-generate"
+            icon="✨"
+            title="Ask & Generate"
+            desc="Explore interview patterns and generate practice questions."
+          />
+          <QuickCard
+            to="/talk"
+            icon="💬"
+            title="Emotional Support"
+            desc="Talk through placement stress, uncertainty, or preparation concerns."
+          />
+          <QuickCard
             to="/advice"
             icon="💡"
             title="Advice & Tips"

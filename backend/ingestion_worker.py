@@ -13,6 +13,75 @@ load_dotenv(BACKEND_DIR / ".env")
 
 logger = logging.getLogger(__name__)
 
+_EXCLUDED_FORM_HEADERS = {
+    "branch",
+    "department",
+    "branch/department",
+    "company",
+    "company name",
+    "role",
+    "graduation/batch year",
+    "batch year",
+    "approximate package/ stipend range",
+    "package/ stipend range",
+    "type of opportunity",
+    "selection status",
+    "interview month and year",
+    "interview date",
+    "score",
+    "timestamp",
+    "submission id",
+    "legacy submission id",
+    "id",
+    "response id",
+    "row number",
+    "row id",
+    "created at",
+    "updated at",
+    "start time",
+    "end time",
+    "source type",
+    "student id",
+    "roll number",
+    "registration number",
+}
+
+
+def _is_public_form_question(header):
+    normalized = " ".join(
+        header.casefold().replace("_", " ").replace("-", " ").split()
+    )
+    compact_normalized = "".join(character for character in normalized if character.isalnum())
+    return not (
+        normalized in _EXCLUDED_FORM_HEADERS
+        or compact_normalized == "canthisresumebeshowntootherusers"
+        or normalized in {"name", "full name", "email", "email address"}
+        or "email" in normalized
+        or "phone" in normalized
+        or "mobile" in normalized
+        or "contact number" in normalized
+        or normalized in {"first name", "last name"}
+        or normalized.startswith("role offered")
+        or normalized.startswith("approximate package")
+        or "consent" in normalized
+    )
+
+
+def _form_answer_pairs(source_row):
+    return [
+        {"question": header, "answer": answer}
+        for header, answer in source_row.items()
+        if isinstance(header, str) and _is_public_form_question(header)
+    ]
+
+
+def _submission_id_for_row(row):
+    submission_id = row.get("submission_id")
+    timestamp = row.get("Timestamp")
+    if not submission_id and timestamp:
+        return f"google-form:{timestamp}"
+    return submission_id
+
 
 def poll_google_sheets():
     """Poll responses using the existing Sheets adapter and common pipeline."""
@@ -40,11 +109,9 @@ def poll_google_sheets():
             continue
 
         row = deepcopy(source_row)
-        submission_id = row.get("submission_id")
-        timestamp = row.get("Timestamp")
-        if not submission_id and timestamp:
-            row["submission_id"] = f"google-form:{timestamp}"
-        elif not submission_id:
+        form_answers = _form_answer_pairs(source_row)
+        submission_id = _submission_id_for_row(row)
+        if not submission_id:
             result = {
                 "status": "failed",
                 "failed_step": "validate_submission_id",
@@ -53,9 +120,11 @@ def poll_google_sheets():
             results.append(result)
             logger.error("Response row %d failed validation: %s", row_number, result["error"])
             continue
+        if not row.get("submission_id"):
+            row["submission_id"] = submission_id
 
         try:
-            result = process_form_response(row)
+            result = process_form_response(row, form_answers=form_answers)
             if not isinstance(result, dict):
                 raise TypeError("shared pipeline returned a non-dictionary result")
         except Exception:

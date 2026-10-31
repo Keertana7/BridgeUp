@@ -41,6 +41,34 @@ class PollWorkerTests(unittest.TestCase):
         self.worker = importlib.import_module("ingestion_worker")
         self.addCleanup(lambda: sys.modules.pop("ingestion_worker", None))
 
+    def test_form_answer_pairs_excludes_submission_id_system_fields(self):
+        self.assertEqual(
+            self.worker._form_answer_pairs(
+                {
+                    "submission_id": "submission-1",
+                    "legacy_submission_id": "legacy-1",
+                    "A public question": "An answer",
+                }
+            ),
+            [{"question": "A public question", "answer": "An answer"}],
+        )
+
+    def test_form_answer_pairs_excludes_score_and_resume_sharing_question(self):
+        pairs = self.worker._form_answer_pairs(
+            {
+                "Score": "100",
+                "score": "99",
+                "Can this resume be shown to other users?": "Yes",
+                "Can-this resume be shown to other users !": "No",
+                "Which interview questions were asked?": "Example question",
+            }
+        )
+
+        self.assertEqual(
+            pairs,
+            [{"question": "Which interview questions were asked?", "answer": "Example question"}],
+        )
+
     def test_new_response_calls_shared_pipeline_with_timestamp_identity(self):
         row = {"Timestamp": "2026-10-16 10:00:00", "Name": "Alex"}
         self.google_sheets.get_sheet_data.return_value = [row]
@@ -58,9 +86,106 @@ class PollWorkerTests(unittest.TestCase):
                 "Timestamp": "2026-10-16 10:00:00",
                 "Name": "Alex",
                 "submission_id": "google-form:2026-10-16 10:00:00",
-            }
+            },
+            form_answers=[],
         )
         self.assertNotIn("submission_id", row)
+
+    def test_worker_preserves_public_question_headers_answers_and_order(self):
+        source_row = {
+            "Timestamp": "2026-10-16 10:00:00",
+            "Name": "Private Name",
+            "Email Address": "private@example.test",
+            "Graduation/Batch year": "2025",
+            "Company ": "Acme",
+            "Role Offered (Eg: Software Engineer)": "Engineer",
+            "Approximate package/ stipend range": "10 LPA",
+            "Type of Opportunity": "Full-time",
+            "Selection status": "Selected",
+            "Interview month and year": "October 2026",
+            "How many rounds were there? Please list the rounds in order and how far did you progress": "Three",
+            "Please describe your experience of all Online assessments for this company ": "Aptitude and coding",
+            "If yes, please describe the aptitude topics/questions you remember.": "Probability",
+            "If you remember , please mention the questions.": "Two sum",
+            "Mode of interview": "Online",
+            "Please describe your interview experience ?(Of all rounds)": "Friendly",
+            "Technical Interview": "Data structures",
+            "Which programming language(s) were discussed? ": "C++, React",
+            "What was your preparation strategy?  ": "Practice daily",
+            "Which topics turned out to be most useful?": "Trees",
+            "What mistakes did you make during preparation/Interview?  ": "No mock interviews",
+            "What is the one thing you wish you knew before attending the interview?  ": "System design",
+            "Was there anything in the interview process that you did not expect?  ": "A live coding round",
+            "Project questions": "Describe your architecture",
+            "Internship questions": "What did you build?",
+            "HR questions": "Tell me about yourself",
+            "Share useful youtube links/website links/github repos": "https://example.test",
+            "What advice would you give?": "Prepare well",
+            "Do you consent to storing this experience?": "I Agree",
+        }
+        self.google_sheets.get_sheet_data.return_value = [source_row]
+        self.pipeline.process_form_response.return_value = {
+            "status": "completed",
+            "duplicate": False,
+        }
+
+        with patch.dict(os.environ, {"GOOGLE_SHEET_API_URL": "https://example.test"}):
+            self.worker.poll_google_sheets()
+
+        call_args, call_kwargs = self.pipeline.process_form_response.call_args
+        passed_row = call_args[0]
+        self.assertIn("submission_id", passed_row)
+        self.assertEqual(
+            call_kwargs["form_answers"],
+            [
+                {
+                    "question": "How many rounds were there? Please list the rounds in order and how far did you progress",
+                    "answer": "Three",
+                },
+                {
+                    "question": "Please describe your experience of all Online assessments for this company ",
+                    "answer": "Aptitude and coding",
+                },
+                {
+                    "question": "If yes, please describe the aptitude topics/questions you remember.",
+                    "answer": "Probability",
+                },
+                {"question": "If you remember , please mention the questions.", "answer": "Two sum"},
+                {"question": "Mode of interview", "answer": "Online"},
+                {
+                    "question": "Please describe your interview experience ?(Of all rounds)",
+                    "answer": "Friendly",
+                },
+                {"question": "Technical Interview", "answer": "Data structures"},
+                {
+                    "question": "Which programming language(s) were discussed? ",
+                    "answer": "C++, React",
+                },
+                {"question": "What was your preparation strategy?  ", "answer": "Practice daily"},
+                {"question": "Which topics turned out to be most useful?", "answer": "Trees"},
+                {
+                    "question": "What mistakes did you make during preparation/Interview?  ",
+                    "answer": "No mock interviews",
+                },
+                {
+                    "question": "What is the one thing you wish you knew before attending the interview?  ",
+                    "answer": "System design",
+                },
+                {
+                    "question": "Was there anything in the interview process that you did not expect?  ",
+                    "answer": "A live coding round",
+                },
+                {"question": "Project questions", "answer": "Describe your architecture"},
+                {"question": "Internship questions", "answer": "What did you build?"},
+                {"question": "HR questions", "answer": "Tell me about yourself"},
+                {
+                    "question": "Share useful youtube links/website links/github repos",
+                    "answer": "https://example.test",
+                },
+                {"question": "What advice would you give?", "answer": "Prepare well"},
+            ],
+        )
+        self.assertNotIn("submission_id", [pair["question"] for pair in call_kwargs["form_answers"]])
 
     def test_already_processed_response_is_retried_via_same_stable_id(self):
         row = {"Timestamp": "2026-10-16 10:00:00", "Name": "Alex"}
@@ -154,11 +279,22 @@ class PdfUploadTests(unittest.TestCase):
         task = background.tasks[0]
         with patch.dict(sys.modules, {"pdf_ingest": adapter}):
             task.func(*task.args, **task.kwargs)
-        adapter.ingest_pdf.assert_called_once_with(Path(task.args[0]))
+        adapter.ingest_pdf.assert_called_once_with(
+            Path(task.args[0]),
+            submitted_by="user-1",
+        )
         self.assertFalse(os.path.exists(os.path.dirname(task.args[0])))
         self.database.table.assert_any_call("experiences")
         self.database.table.return_value.update.assert_called_once_with(
             {"submitted_by": "user-1"}
+        )
+        owner_update = (
+            self.database.table.return_value.update.return_value
+            .eq.return_value.eq.return_value
+        )
+        owner_update.is_.assert_called_once_with(
+            "submitted_by",
+            "null",
         )
 
     def test_invalid_or_textless_pdf_is_rejected(self):
@@ -288,6 +424,10 @@ class PdfUploadTests(unittest.TestCase):
         )
         self.assertEqual(status["extraction_status"], "failed")
         query.eq.assert_any_call("source_file", status["source_file"])
+        query.select.assert_called_once_with(
+            "id,source_file,extraction_status,submitted_by,"
+            "company_id,role,batch,package,opportunity_type,selection_status,consent"
+        )
 
     def test_status_endpoint_returns_404_for_unowned_or_missing_pdf(self):
         query = Mock()

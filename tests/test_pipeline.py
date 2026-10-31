@@ -3,7 +3,7 @@ import os
 import sys
 import types
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 INGESTION_DIR = os.path.join(PROJECT_ROOT, "ingestion")
@@ -91,12 +91,16 @@ class PipelineTests(unittest.TestCase):
                     "process_experience",
                     return_value={"status": "completed", "experience_id": "exp-1"},
                 ) as process:
-                    result = pdf_ingest.ingest_pdf(types.SimpleNamespace(name="sample.pdf"))
+                    result = pdf_ingest.ingest_pdf(
+                        types.SimpleNamespace(name="sample.pdf"),
+                        submitted_by="user-1",
+                    )
 
         self.assertEqual(result["status"], "completed")
         fake_privacy.sanitize_text.assert_called_once_with("raw PDF text")
         experience = process.call_args.args[0]
         self.assertEqual(experience["content"], "sanitized PDF text")
+        self.assertEqual(experience["submitted_by"], "user-1")
         self.assertEqual(process.call_args.kwargs["extraction_text"], "raw PDF text")
 
     def test_form_ingest_import_does_not_fetch_or_write(self):
@@ -343,11 +347,11 @@ class PipelineTests(unittest.TestCase):
                 "status:processing",
                 "extract",
                 "save_extraction",
-                "status:completed",
                 "create_chunks",
                 "embed_questions",
                 "embed_advice",
                 "embed_chunks",
+                "status:completed",
             ],
         )
         extractor.assert_called_once_with("Original PDF text")
@@ -356,6 +360,18 @@ class PipelineTests(unittest.TestCase):
             EXTRACTION,
             reprocess=False,
         )
+
+    def test_pdf_owner_is_saved_with_the_new_experience(self):
+        self.configure_pipeline()
+
+        result = self.pipeline.process_experience(
+            {**EXPERIENCE, "submitted_by": "user-1"},
+            extraction_result=EXTRACTION,
+        )
+
+        self.assertEqual(result["status"], "completed")
+        inserted_experience = self.database.table.return_value.insert.call_args.args[0]
+        self.assertEqual(inserted_experience["submitted_by"], "user-1")
 
     def test_duplicate_input_resumes_without_recreating_experience_or_extraction(self):
         mocks = self.configure_pipeline(
@@ -372,9 +388,92 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(result["duplicate"])
         self.assertEqual(result["experience_id"], "exp-existing")
         self.database.table.return_value.insert.assert_not_called()
+
+    def test_pdf_duplicate_attaches_uploader_only_when_owner_is_unassigned(self):
+        mocks = self.configure_pipeline(
+            existing={"id": "exp-existing", "extraction_status": "completed"}
+        )
+        mocks["_has_extraction_rows"].return_value = True
+        ownership_query = Mock()
+        ownership_query.eq.return_value = ownership_query
+        ownership_query.is_.return_value = ownership_query
+        self.database.table.return_value.update.return_value = ownership_query
+
+        result = self.pipeline.process_experience(
+            {**EXPERIENCE, "submitted_by": "user-1"},
+            extractor=Mock(),
+        )
+
+        self.assertEqual(result["status"], "completed")
+        self.database.table.return_value.update.assert_called_once_with(
+            {"submitted_by": "user-1"}
+        )
+        self.assertEqual(
+            ownership_query.eq.call_args_list,
+            [
+                call("id", "exp-existing"),
+                call("source_type", "pdf"),
+                call("source_file", "sample.pdf"),
+            ],
+        )
+        ownership_query.is_.assert_called_once_with("submitted_by", "null")
+        ownership_query.execute.assert_called_once_with()
+        self.database.table.return_value.insert.assert_not_called()
         mocks["get_or_create_company"].assert_not_called()
         mocks["save_extraction"].assert_not_called()
         mocks["embed_questions_for_experience"].assert_called_once_with("exp-existing")
+
+    def test_form_answer_pairs_are_inserted_with_new_experience(self):
+        self.configure_pipeline()
+        form_answers = [
+            {"question": "Mode of interview", "answer": "Online"},
+            {"question": "Resources and links", "answer": "https://example.test"},
+        ]
+        experience = {
+            "source_type": "form",
+            "submission_id": "google-form:2026-10-16",
+            "legacy_submission_id": "2026-10-16",
+            "company_name": "Acme",
+            "role": "Engineer",
+            "content": "Existing concatenated content",
+            "form_answers": form_answers,
+        }
+
+        result = self.pipeline.process_experience(
+            experience,
+            extraction_result=EXTRACTION,
+        )
+
+        self.assertEqual(result["status"], "completed")
+        inserted = self.database.table.return_value.insert.call_args.args[0]
+        self.assertEqual(inserted["form_answers"], form_answers)
+        self.assertEqual(inserted["content"], "Existing concatenated content")
+        self.assertEqual(inserted["submission_id"], "google-form:2026-10-16")
+        self.assertNotIn("legacy_submission_id", inserted)
+
+    def test_form_duplicate_reuses_experience_instead_of_inserting_another(self):
+        mocks = self.configure_pipeline(
+            existing={"id": "existing-form", "extraction_status": "completed"}
+        )
+        mocks["_has_extraction_rows"].return_value = True
+        form_experience = {
+            "source_type": "form",
+            "submission_id": "google-form:2026-10-16",
+            "content": "Existing content",
+            "form_answers": [
+                {"question": "Mode of interview", "answer": "Online"},
+            ],
+        }
+
+        result = self.pipeline.process_experience(
+            form_experience,
+            extraction_result=EXTRACTION,
+        )
+
+        self.assertEqual(result["experience_id"], "existing-form")
+        self.assertTrue(result["duplicate"])
+        self.database.table.return_value.insert.assert_not_called()
+        mocks["save_extraction"].assert_called_once()
 
     def test_completed_duplicate_backfills_using_supplied_form_extraction(self):
         mocks = self.configure_pipeline(
@@ -642,6 +741,68 @@ class PipelineTests(unittest.TestCase):
             "advice",
         )
 
+    def test_form_answer_pairs_are_forwarded_without_rewriting(self):
+        transform = types.ModuleType("transform")
+        transform.transform_experience = Mock(return_value={
+            "company": "Acme",
+            "role": "Engineer",
+            "package": None,
+            "opportunity_type": None,
+            "selection_status": None,
+            "interview_date": None,
+            "difficulty": None,
+            "preparation_duration": None,
+            "rounds": "Round one",
+            "online_assessment": None,
+            "interview_experience": None,
+            "technical_interview": None,
+            "programming_languages": None,
+            "unexpected": None,
+            "preparation_strategy": None,
+            "useful_topics": None,
+            "mistakes": None,
+            "advice": None,
+            "wish_known": None,
+            "consent": "I Agree",
+        })
+        transform.transform_questions = Mock(return_value={
+            "oa_aptitude": None,
+            "oa_coding": None,
+            "technical_questions": None,
+            "project_questions": None,
+            "internship_questions": None,
+            "technical_aptitude": None,
+            "hr_questions": None,
+        })
+        transform.transform_advice = Mock(return_value={
+            "preparation_strategy": None,
+            "useful_topics": None,
+            "mistakes": None,
+            "advice": None,
+            "wish_known": None,
+        })
+        form_answers = [
+            {"question": "Mode of interview", "answer": "Online"},
+            {"question": "What advice would you give?", "answer": "Prepare."},
+        ]
+
+        with patch.dict(sys.modules, {"transform": transform}):
+            with patch.object(self.pipeline, "_find_form_experience", return_value=(None, False)):
+                with patch.object(self.pipeline, "process_experience", return_value={"status": "completed"}) as process:
+                    result = self.pipeline.process_form_response(
+                        {
+                            "Timestamp": "2026-10-16",
+                            "submission_id": "google-form:2026-10-16",
+                            "Company ": "Acme",
+                        },
+                        form_answers=form_answers,
+                    )
+
+        self.assertEqual(result["status"], "completed")
+        experience = process.call_args.args[0]
+        self.assertIs(experience["form_answers"], form_answers)
+        self.assertEqual(process.call_args.kwargs["extraction_result"], {"questions": [], "advice": []})
+
     def test_invalid_form_response_reports_validation_failure(self):
         result = self.pipeline.process_form_response(None)
 
@@ -800,6 +961,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result["failed_step"], "create_chunks")
         self.assertEqual(result["experience_id"], "exp-1")
         mocks["embed_questions_for_experience"].assert_not_called()
+        self.assertEqual(mocks["_set_extraction_status"].call_args_list[-1].args[1], "failed")
 
     def test_question_embedding_failures_include_record_details(self):
         mocks = self.configure_pipeline()

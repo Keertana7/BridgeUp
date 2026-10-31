@@ -40,14 +40,28 @@ def _attach_pdf_owner(source_file: str, user_id: str) -> None:
         .update({"submitted_by": user_id})
         .eq("source_type", "pdf")
         .eq("source_file", source_file)
+        .is_("submitted_by", "null")
         .execute()
     )
     if not response.data:
-        logger.error(
-            "Could not associate PDF experience with uploader "
-            "(source_file=%s, user_id=%s)",
+        logger.debug(
+            "PDF owner association was unnecessary or already assigned "
+            "(source_file=%s)",
             source_file,
-            user_id,
+        )
+
+
+def _mark_pdf_failed(source_file: str, user_id: str) -> None:
+    try:
+        supabase.table("experiences").update(
+            {"extraction_status": "failed"}
+        ).eq("source_type", "pdf").eq(
+            "source_file", source_file
+        ).eq("submitted_by", user_id).execute()
+    except Exception:
+        logger.exception(
+            "Could not mark PDF processing as failed (source_file=%s)",
+            source_file,
         )
 
 
@@ -59,8 +73,12 @@ def _ingest_uploaded_pdf(
     temp_dir = str(Path(pdf_path).parent)
     try:
         pdf_ingest = load_shared_module("pdf_ingest")
-        result = pdf_ingest.ingest_pdf(Path(pdf_path))
+        result = pdf_ingest.ingest_pdf(
+            Path(pdf_path),
+            submitted_by=user_id,
+        )
         if not isinstance(result, dict) or result.get("status") != "completed":
+            _mark_pdf_failed(source_file, user_id)
             logger.error(
                 "PDF ingestion failed (source_file=%s, experience_id=%s, step=%s): %s",
                 source_file,
@@ -79,6 +97,7 @@ def _ingest_uploaded_pdf(
             result.get("duplicate", False),
         )
     except Exception:
+        _mark_pdf_failed(source_file, user_id)
         logger.exception("PDF ingestion crashed (source_file=%s)", source_file)
     finally:
         try:
@@ -190,7 +209,10 @@ def get_pdf_status(
     try:
         response = (
             supabase.table("experiences")
-            .select("id,source_file,extraction_status,submitted_by")
+            .select(
+                "id,source_file,extraction_status,submitted_by,"
+                "company_id,role,batch,package,opportunity_type,selection_status,consent"
+            )
             .eq("source_type", "pdf")
             .eq("source_file", source_file)
             .limit(1)

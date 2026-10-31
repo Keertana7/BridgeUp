@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { companiesApi, ingestionApi, experiencesApi } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { runPdfUploadFlow } from './pdfUploadFlow';
 import './UploadExperiencePage.css';
 
 const MAX_MB = 25;
@@ -33,12 +34,12 @@ export default function UploadExperiencePage() {
 
   // Submission state
   const [pageStatus, setPageStatus] = useState('idle');
-  // idle | validating | uploading | patching | polling | success | error
+  // idle | validating | uploading | polling | pending | success | error
   const [statusMessage, setStatusMessage] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
+  const [uploadSession, setUploadSession] = useState(null);
 
   const inputRef = useRef(null);
-  const pollRef = useRef(null);
 
   // ── File handling ──────────────────────────────────────────────────────────
 
@@ -82,125 +83,106 @@ export default function UploadExperiencePage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (pageStatus === 'uploading' || pageStatus === 'patching' || pageStatus === 'polling') return;
+    if (pageStatus === 'uploading' || pageStatus === 'polling') return;
 
-    const errors = validate();
-    if (Object.keys(errors).length > 0) {
-      setFieldErrors(errors);
-      setPageStatus('validating');
-      return;
+    let session = uploadSession;
+    let metadata = session?.metadata;
+
+    if (!session) {
+      const errors = validate();
+      if (Object.keys(errors).length > 0) {
+        setFieldErrors(errors);
+        setPageStatus('validating');
+        return;
+      }
+
+      setFieldErrors({});
+      setPageStatus('uploading');
+      setStatusMessage('Saving company details…');
+
+      let company;
+      try {
+        company = await companiesApi.resolve(companyName.trim());
+      } catch (err) {
+        setPageStatus('error');
+        setStatusMessage(
+          err?.message || 'Could not save the company. Your PDF was not uploaded.'
+        );
+        return;
+      }
+
+      if (!company?.id) {
+        setPageStatus('error');
+        setStatusMessage('Could not resolve the company. Your PDF was not uploaded.');
+        return;
+      }
+
+      metadata = {
+        role: role.trim(),
+        batch: String(batch),
+        opportunity_type: opportunityType,
+        selection_status: selectionStatus,
+        consent: true,
+        company_id: company.id,
+      };
+      if (packageVal.trim()) metadata.package = packageVal.trim();
     }
 
-    setFieldErrors({});
-    setPageStatus('uploading');
-    setStatusMessage('Saving company details…');
+    setPageStatus(session ? 'polling' : 'uploading');
+    setStatusMessage(
+      session
+        ? 'Checking the existing PDF processing status…'
+        : 'Uploading your PDF…'
+    );
 
-    let company;
-    try {
-      company = await companiesApi.resolve(companyName.trim());
-    } catch (err) {
-      setPageStatus('error');
-      setStatusMessage(
-        err?.message || 'Could not save the company. Your PDF was not uploaded.'
-      );
-      return;
-    }
-
-    if (!company?.id) {
-      setPageStatus('error');
-      setStatusMessage('Could not resolve the company. Your PDF was not uploaded.');
-      return;
-    }
-
-    // Step 1 — Upload PDF to existing endpoint POST /ingestion/pdfs
-    setStatusMessage('Uploading your PDF…');
-    let uploadResult;
-    try {
-      uploadResult = await ingestionApi.uploadPdf(file);
-    } catch (err) {
-      setPageStatus('error');
-      setStatusMessage(
-        err?.status === 0
-          ? 'Cannot reach the backend. Make sure the server is running.'
-          : err?.message || 'Upload failed. Please try again.'
-      );
-      return;
-    }
-
-    const sourceFile = uploadResult.source_file;
-
-    // Step 2 — Poll pdf-status until experience row is created (we need the id)
-    setPageStatus('polling');
-    setStatusMessage('Processing your PDF… This may take a moment.');
-
-    let experienceId = null;
-    let attempts = 0;
-    const maxAttempts = 30; // 30 × 3 s = 90 s max wait
-
-    await new Promise((resolve) => {
-      pollRef.current = setInterval(async () => {
-        attempts++;
-        try {
-          const statusResult = await ingestionApi.pdfStatus(sourceFile);
-          if (statusResult?.id && statusResult.submitted_by === user?.id) {
-            experienceId = statusResult.id;
-            clearInterval(pollRef.current);
-            resolve();
-          } else if (attempts >= maxAttempts) {
-            clearInterval(pollRef.current);
-            resolve();
-          }
-        } catch {
-          if (attempts >= maxAttempts) {
-            clearInterval(pollRef.current);
-            resolve();
-          }
-        }
-      }, 3000);
+    const result = await runPdfUploadFlow({
+      file,
+      session,
+      metadata,
+      userId: user?.id,
+      uploadPdf: (pdf) => ingestionApi.uploadPdf(pdf),
+      pdfStatus: (sourceFile) => ingestionApi.pdfStatus(sourceFile),
+      patchExperience: (experienceId, updates) =>
+        experiencesApi.patch(experienceId, updates),
+      onSessionChange: setUploadSession,
     });
 
-    if (!experienceId) {
+    if (result.status === 'upload_failed') {
       setPageStatus('error');
       setStatusMessage(
-        'Your PDF was accepted, but processing did not finish in time. ' +
-          'The company and other metadata have not been attached yet. ' +
-          'Please retry after processing completes.'
+        result.error?.status === 0
+          ? 'Cannot reach the backend. Make sure the server is running.'
+          : result.error?.message || 'PDF upload failed. Please try again.'
       );
-      return;
-    }
-
-    // Step 3 — PATCH the experience with metadata using existing PATCH /experiences/{id}
-    setPageStatus('patching');
-    setStatusMessage('Saving your details…');
-
-    const metadata = {
-      role: role.trim(),
-      batch: String(batch),
-      opportunity_type: opportunityType,
-      selection_status: selectionStatus,
-      consent: true,
-      company_id: company.id,
-    };
-    if (packageVal.trim()) metadata.package = packageVal.trim();
-
-    try {
-      await experiencesApi.patch(experienceId, metadata);
-    } catch (err) {
+    } else if (result.status === 'metadata_failed') {
       setPageStatus('error');
       setStatusMessage(
-        'Your PDF was uploaded, but the company or other metadata could not be saved (' +
-          (err?.message || 'unknown error') +
-          '). Please retry to associate the company with the experience.'
+        `Your PDF is processing, but its details could not be saved: ${result.error?.message || 'unknown error'}. Retry to save the details without uploading again.`
       );
-      return;
+    } else if (result.status === 'status_unavailable') {
+      setPageStatus('error');
+      setStatusMessage(
+        `Could not check PDF processing status: ${result.error?.message || 'the status service is unavailable'}. Retry checking here; the PDF will not be uploaded again.`
+      );
+    } else if (result.status === 'processing_failed') {
+      setPageStatus('processing_failed');
+      setStatusMessage(
+        'PDF processing failed. Your experience details were saved. You can retry the PDF upload to retry processing.'
+      );
+    } else if (result.status === 'pending') {
+      setPageStatus('pending');
+      setStatusMessage(
+        result.session?.metadataAttached
+          ? 'Your experience details are saved. PDF processing is still underway; continue checking here without uploading again.'
+          : 'Your PDF was accepted and is still processing. Continue checking here without uploading again.'
+      );
+    } else {
+      setPageStatus('success');
+      setStatusMessage('Your interview experience was submitted successfully! 🎉');
     }
-
-    setPageStatus('success');
-    setStatusMessage('Your interview experience was submitted successfully! 🎉');
   }
 
   function reset() {
-    clearInterval(pollRef.current);
     setCompanyName('');
     setRole('');
     setBatch('');
@@ -211,11 +193,12 @@ export default function UploadExperiencePage() {
     setPageStatus('idle');
     setStatusMessage('');
     setFieldErrors({});
+    setUploadSession(null);
     if (inputRef.current) inputRef.current.value = '';
   }
 
-  const isSubmitting =
-    pageStatus === 'uploading' || pageStatus === 'patching' || pageStatus === 'polling';
+  const isSubmitting = pageStatus === 'uploading' || pageStatus === 'polling';
+  const isLocked = isSubmitting || Boolean(uploadSession);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -281,7 +264,7 @@ export default function UploadExperiencePage() {
             }}
             placeholder="Type company name"
             autoComplete="off"
-            disabled={isSubmitting}
+            disabled={isLocked}
           />
           {fieldErrors.company && <p className="field-error">{fieldErrors.company}</p>}
         </div>
@@ -301,7 +284,7 @@ export default function UploadExperiencePage() {
               setFieldErrors((err) => ({ ...err, role: undefined }));
             }}
             placeholder="e.g. Software Engineer"
-            disabled={isSubmitting}
+            disabled={isLocked}
           />
           {fieldErrors.role && <p className="field-error">{fieldErrors.role}</p>}
         </div>
@@ -319,7 +302,7 @@ export default function UploadExperiencePage() {
               setBatch(e.target.value);
               setFieldErrors((err) => ({ ...err, batch: undefined }));
             }}
-            disabled={isSubmitting}
+            disabled={isLocked}
           >
             <option value="">Select year</option>
             {BATCH_YEARS.map((y) => (
@@ -341,7 +324,7 @@ export default function UploadExperiencePage() {
             value={packageVal}
             onChange={(e) => setPackageVal(e.target.value)}
             placeholder="e.g. 12 LPA or ₹50,000/month"
-            disabled={isSubmitting}
+            disabled={isLocked}
           />
         </div>
 
@@ -362,7 +345,7 @@ export default function UploadExperiencePage() {
                     setOpportunityType(opt);
                     setFieldErrors((err) => ({ ...err, opportunityType: undefined }));
                   }}
-                  disabled={isSubmitting}
+                  disabled={isLocked}
                 />
                 {opt}
               </label>
@@ -390,7 +373,7 @@ export default function UploadExperiencePage() {
                     setSelectionStatus(opt);
                     setFieldErrors((err) => ({ ...err, selectionStatus: undefined }));
                   }}
-                  disabled={isSubmitting}
+                  disabled={isLocked}
                 />
                 {opt}
               </label>
@@ -411,11 +394,11 @@ export default function UploadExperiencePage() {
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
-            onClick={() => !isSubmitting && inputRef.current?.click()}
+            onClick={() => !isLocked && inputRef.current?.click()}
             role="button"
-            tabIndex={isSubmitting ? -1 : 0}
+            tabIndex={isLocked ? -1 : 0}
             aria-label="Drop PDF here or click to select"
-            onKeyDown={(e) => e.key === 'Enter' && !isSubmitting && inputRef.current?.click()}
+            onKeyDown={(e) => e.key === 'Enter' && !isLocked && inputRef.current?.click()}
           >
             <input
               ref={inputRef}
@@ -424,7 +407,7 @@ export default function UploadExperiencePage() {
               className="drop-input"
               onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
               aria-hidden="true"
-              disabled={isSubmitting}
+              disabled={isLocked}
             />
             {file ? (
               <div className="drop-selected">
@@ -433,7 +416,7 @@ export default function UploadExperiencePage() {
                   <p className="drop-filename">{file.name}</p>
                   <p className="drop-filesize">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
                 </div>
-                {!isSubmitting && (
+                {!isLocked && (
                   <button
                     type="button"
                     className="drop-clear"
@@ -464,7 +447,7 @@ export default function UploadExperiencePage() {
         )}
 
         {/* ── Error ── */}
-        {pageStatus === 'error' && (
+        {(pageStatus === 'error' || pageStatus === 'processing_failed') && (
           <div className="submission-error" role="alert">
             ⚠️ {statusMessage}
           </div>
@@ -472,17 +455,45 @@ export default function UploadExperiencePage() {
 
         {/* ── Submit ── */}
         <div className="form-actions">
-          <Link to="/share-experience" className="btn-secondary" tabIndex={isSubmitting ? -1 : 0}>
+          <Link to="/share-experience" className="btn-secondary" tabIndex={isLocked ? -1 : 0}>
             Cancel
           </Link>
           <button
             type="submit"
             className="btn-primary"
-            disabled={isSubmitting}
+            disabled={isSubmitting || pageStatus === 'processing_failed'}
             aria-busy={isSubmitting}
           >
-            {isSubmitting ? statusMessage : 'Submit Experience'}
+            {isSubmitting
+              ? statusMessage
+              : pageStatus === 'processing_failed'
+                ? 'Processing failed'
+                : uploadSession
+                  ? uploadSession.metadataAttached
+                    ? 'Continue checking'
+                    : uploadSession.experienceId
+                      ? 'Retry saving details'
+                      : 'Resume processing'
+                : 'Submit Experience'}
           </button>
+          {pageStatus === 'processing_failed' && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                setUploadSession(null);
+                setPageStatus('idle');
+                setStatusMessage('');
+              }}
+            >
+              Retry PDF upload
+            </button>
+          )}
+          {pageStatus === 'pending' && (
+            <p className="submission-status" role="status">
+              {statusMessage}
+            </p>
+          )}
         </div>
       </form>
     </div>

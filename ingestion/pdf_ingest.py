@@ -34,7 +34,7 @@ def extract_text_from_pdf(pdf_path):
 # PDF INGESTION
 # --------------------------------------------------
 
-def ingest_pdf(pdf_path):
+def ingest_pdf(pdf_path, submitted_by=None):
 
     filename = pdf_path.name
 
@@ -69,6 +69,7 @@ def ingest_pdf(pdf_path):
     experience = {
         "source_file": filename,
         "source_type": "pdf",
+        "submitted_by": submitted_by,
 
         # We don't know these yet.
         # Gemini will structure them later.

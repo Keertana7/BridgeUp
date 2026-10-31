@@ -15,6 +15,8 @@ import QuestionsPage from './pages/QuestionsPage';
 import AdvicePage from './pages/AdvicePage';
 import ResourcesPage from './pages/ResourcesPage';
 import ChatPage from './pages/ChatPage';
+import AskGeneratePage from './pages/AskGeneratePage';
+import EmotionalSupport from './pages/EmotionalSupport';
 import UploadPage from './pages/UploadPage';
 import ShareExperiencePage from './pages/ShareExperiencePage';
 import UploadExperiencePage from './pages/UploadExperiencePage';
@@ -76,6 +78,14 @@ export default function App() {
                 }
               />
               <Route
+                path="/ask-generate"
+                element={
+                  <ProtectedRoute>
+                    <AskGeneratePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/advice"
                 element={
                   <ProtectedRoute>
@@ -96,6 +106,14 @@ export default function App() {
                 element={
                   <ProtectedRoute>
                     <ChatPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/talk"
+                element={
+                  <ProtectedRoute>
+                    <EmotionalSupport />
                   </ProtectedRoute>
                 }
               />

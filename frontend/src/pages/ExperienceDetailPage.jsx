@@ -4,6 +4,10 @@ import { experiencesApi, companiesApi, questionsApi, adviceApi } from '../api/cl
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorMessage from '../components/ErrorMessage';
 import EmptyState from '../components/EmptyState';
+import {
+  getExperienceContentPresentation,
+  hasMeaningfulAnswer,
+} from './formAnswerDisplay';
 import './ExperienceDetailPage.css';
 
 export default function ExperienceDetailPage() {
@@ -59,6 +63,15 @@ export default function ExperienceDetailPage() {
       ? experience.source_file.replace(/\.pdf$/i, '')
       : '';
   const heading = experience.role || (pdfFilename.trim() ? pdfFilename : null);
+  const contentPresentation = getExperienceContentPresentation(experience);
+  const hasContent =
+    contentPresentation.mode === 'form_answers' ||
+    (experience.content != null &&
+      (typeof experience.content === 'string'
+        ? experience.content.trim().length > 0
+        : typeof experience.content === 'object'
+          ? Object.keys(experience.content).length > 0
+          : true));
 
   return (
     <div className="exp-detail-page">
@@ -113,15 +126,12 @@ export default function ExperienceDetailPage() {
       </div>
 
       {/* ── Raw content (the actual interview narrative) ── */}
-      {experience.content != null &&
-        (typeof experience.content === 'string'
-          ? experience.content.trim().length > 0
-          : typeof experience.content === 'object'
-            ? Object.keys(experience.content).length > 0
-            : true) && (
+      {hasContent && (
         <section className="exp-section">
           <h2 className="exp-section-title">Experience Content</h2>
-          <ContentBlock content={experience.content} />
+          {contentPresentation.mode === 'form_answers'
+            ? <FormAnswerList answers={contentPresentation.answers} />
+            : <ContentBlock content={experience.content} />}
         </section>
       )}
 
@@ -247,6 +257,40 @@ function ContentBlock({ content }) {
   }
 
   return <pre className="content-raw">{JSON.stringify(content, null, 2)}</pre>;
+}
+
+function FormAnswerList({ answers }) {
+  return (
+    <div className="form-answer-list">
+      {answers.map(({ question, answer }, index) => (
+        <div key={`${question}-${index}`} className="form-answer-entry">
+          <h3 className="form-answer-question">{question}</h3>
+          <FormAnswerValue value={answer} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FormAnswerValue({ value }) {
+  if (Array.isArray(value)) {
+    return (
+      <ul className="content-list">
+          {value.filter(hasMeaningfulAnswer).map((item, index) => (
+          <li key={index}><FormAnswerValue value={item} /></li>
+        ))}
+      </ul>
+    );
+  }
+
+  if (value !== null && typeof value === 'object') {
+      const visibleEntries = Object.fromEntries(
+        Object.entries(value).filter(([, item]) => hasMeaningfulAnswer(item))
+      );
+      return <pre className="content-raw">{JSON.stringify(visibleEntries, null, 2)}</pre>;
+    }
+
+  return <p className="form-answer-value">{String(value)}</p>;
 }
 
 function QuestionItem({ question: q }) {
