@@ -134,6 +134,7 @@ MODELS = [
     "gemini-3.1-flash-lite"
 ]
 
+
 def generate_with_fallback(prompt):
 
     for model in MODELS:
@@ -158,63 +159,54 @@ def generate_with_fallback(prompt):
 
             except Exception as e:
 
-                error_message = str(e)
+                error_message = str(e).upper()
 
-                # -----------------------------------------
-                # TEMPORARY ERRORS
-                # -----------------------------------------
-
-                temporary_error = (
-                    "503" in error_message
-                    or "UNAVAILABLE" in error_message
-                    or "429" in error_message
-                    or "RESOURCE_EXHAUSTED" in error_message
-                )
-
-                # -----------------------------------------
-                # MODEL NOT AVAILABLE
-                # -----------------------------------------
-
+                # Model unavailable: try next model
                 model_unavailable = (
                     "404" in error_message
                     or "NOT_FOUND" in error_message
-                    or "no longer available" in error_message
+                    or "NO LONGER AVAILABLE" in error_message
                 )
-
-                # -----------------------------------------
-                # MODEL NOT AVAILABLE
-                # → immediately try next model
-                # -----------------------------------------
 
                 if model_unavailable:
 
-                    print(
-                        f"{model} is not available "
-                        f"for this API key."
-                    )
-
+                    print(f"{model} unavailable. Trying next model.")
                     break
 
-                # -----------------------------------------
-                # TEMPORARY ERROR
-                # → retry same model
-                # -----------------------------------------
+                # Temporary API/network errors
+                temporary_error = any(error in error_message for error in [
+                    "503",
+                    "UNAVAILABLE",
+                    "429",
+                    "RESOURCE_EXHAUSTED",
+                    "500",
+                    "502",
+                    "504",
+                    "SERVER DISCONNECTED",
+                    "CONNECTION RESET",
+                    "CONNECTION ABORTED",
+                    "REMOTE PROTOCOL ERROR",
+                    "READ TIMEOUT",
+                    "CONNECT TIMEOUT",
+                    "TIMED OUT",
+                    "INTERNAL SERVER ERROR"
+                ])
 
                 if temporary_error:
 
                     if attempt == 2:
 
                         print(
-                            f"{model} failed after "
-                            f"3 attempts."
+                            f"{model} failed after 3 attempts. "
+                            "Trying next model."
                         )
 
                         break
 
-                    wait_time = 2 ** attempt
+                    wait_time = 2 ** (attempt + 1)
 
                     print(
-                        f"{model} temporarily unavailable. "
+                        f"Temporary error with {model}: {e}. "
                         f"Retrying in {wait_time} seconds..."
                     )
 
@@ -222,11 +214,7 @@ def generate_with_fallback(prompt):
 
                     continue
 
-                # -----------------------------------------
-                # OTHER ERROR
-                # → don't hide real problems
-                # -----------------------------------------
-
+                # Unexpected errors should remain visible
                 raise
 
     raise RuntimeError(
